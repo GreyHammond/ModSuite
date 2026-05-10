@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ModSuite — Discord Moderation Suite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0b0f;
+    --bg2:       #0f1117;
+    --bg3:       #151720;
+    --border:    rgba(255,255,255,0.06);
+    --text:      #e8eaf0;
+    --muted:     #6b7080;
+    --accent:    #5865f2;
+    --accent2:   #eb459e;
+    --accent3:   #57f287;
+    --red:       #ed4245;
+    --yellow:    #fee75c;
+    --glow:      rgba(88,101,242,0.15);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ── Noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  /* ── Nav ── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.2rem 3rem;
+    background: rgba(10,11,15,0.8);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.2rem;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .nav-logo span {
+    color: var(--accent);
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    list-style: none;
+  }
+
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 400;
+    transition: color 0.2s;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .nav-links a:hover { color: var(--text); }
+
+  .nav-cta {
+    background: var(--accent);
+    color: #fff !important;
+    padding: 0.5rem 1.2rem;
+    border-radius: 6px;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.8rem !important;
+    transition: background 0.2s, transform 0.15s !important;
+  }
+
+  .nav-cta:hover {
+    background: #4752c4 !important;
+    transform: translateY(-1px);
+  }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 8rem 2rem 4rem;
+    overflow: hidden;
+  }
+
+  /* Radial glow bg */
+  .hero::after {
+    content: '';
+    position: absolute;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(88,101,242,0.12) 0%, transparent 70%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -60%);
+    pointer-events: none;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(88,101,242,0.1);
+    border: 1px solid rgba(88,101,242,0.3);
+    border-radius: 100px;
+    padding: 0.35rem 1rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    color: #8b9cf4;
+    margin-bottom: 2rem;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .hero-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--accent3);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(3rem, 8vw, 6.5rem);
+    line-height: 1.0;
+    letter-spacing: -0.04em;
+    margin-bottom: 1.5rem;
+    animation: fadeUp 0.6s ease 0.1s both;
+  }
+
+  h1 em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-sub {
+    font-size: clamp(1rem, 2.5vw, 1.2rem);
+    color: var(--muted);
+    max-width: 520px;
+    margin: 0 auto 2.5rem;
+    font-weight: 300;
+    animation: fadeUp 0.6s ease 0.2s both;
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    animation: fadeUp 0.6s ease 0.3s both;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1.8rem;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.875rem;
+    text-decoration: none;
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 30px rgba(88,101,242,0.3);
+  }
+
+  .btn-primary:hover {
+    background: #4752c4;
+    transform: translateY(-2px);
+    box-shadow: 0 0 40px rgba(88,101,242,0.5);
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover {
+    border-color: rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04);
+    transform: translateY(-2px);
+  }
+
+  /* ── Terminal preview ── */
+  .terminal-wrap {
+    margin-top: 4rem;
+    width: 100%;
+    max-width: 680px;
+    animation: fadeUp 0.6s ease 0.4s both;
+  }
+
+  .terminal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  }
+
+  .terminal-bar {
+    background: var(--bg3);
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-r { background: #ff5f57; }
+  .dot-y { background: #febc2e; }
+  .dot-g { background: #28c840; }
+
+  .terminal-title {
+    flex: 1;
+    text-align: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .terminal-body {
+    padding: 1.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 2;
+    text-align: left;
+  }
+
+  .t-dim    { color: var(--muted); }
+  .t-green  { color: var(--accent3); }
+  .t-blue   { color: #8b9cf4; }
+  .t-yellow { color: var(--yellow); }
+  .t-pink   { color: var(--accent2); }
+  .t-red    { color: var(--red); }
+
+  /* ── Section base ── */
+  section {
+    position: relative;
+    z-index: 1;
+    padding: 6rem 2rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+
+  h2 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2rem, 4vw, 3rem);
+    letter-spacing: -0.03em;
+    margin-bottom: 1rem;
+    line-height: 1.1;
+  }
+
+  .section-desc {
+    color: var(--muted);
+    max-width: 480px;
+    margin-bottom: 3.5rem;
+    font-size: 1rem;
+  }
+
+  /* ── Divider ── */
+  .divider {
+    width: 100%;
+    height: 1px;
+    background: var(--border);
+    margin: 0 auto;
+    max-width: 1100px;
+  }
+
+  /* ── Feature grid ── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .feature-card {
+    background: var(--bg);
+    padding: 2rem;
+    transition: background 0.2s;
+    position: relative;
+  }
+
+  .feature-card:hover {
+    background: var(--bg2);
+  }
+
+  .feature-icon {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    display: block;
+  }
+
+  .feature-card h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.01em;
+  }
+
+  .feature-card p {
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .feature-tag {
+    display: inline-block;
+    margin-top: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(88,101,242,0.1);
+    color: #8b9cf4;
+    border: 1px solid rgba(88,101,242,0.2);
+  }
+
+  /* ── Commands section ── */
+  .commands-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cmd-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+    padding: 1rem 1.5rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: border-color 0.2s, background 0.2s;
+  }
+
+  .cmd-row:hover {
+    border-color: rgba(88,101,242,0.3);
+    background: var(--bg3);
+  }
+
+  .cmd-name {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.875rem;
+    color: var(--accent);
+    min-width: 180px;
+    flex-shrink: 0;
+  }
+
+  .cmd-desc {
+    color: var(--muted);
+    font-size: 0.875rem;
+    flex: 1;
+  }
+
+  .cmd-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .badge-staff {
+    background: rgba(88,101,242,0.15);
+    color: #8b9cf4;
+    border: 1px solid rgba(88,101,242,0.25);
+  }
+
+  .badge-all {
+    background: rgba(87,242,135,0.1);
+    color: var(--accent3);
+    border: 1px solid rgba(87,242,135,0.2);
+  }
+
+  .badge-admin {
+    background: rgba(237,66,69,0.1);
+    color: #f28b8c;
+    border: 1px solid rgba(237,66,69,0.2);
+  }
+
+  /* ── Setup steps ── */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.5rem;
+    counter-reset: step;
+  }
+
+  .step {
+    counter-increment: step;
+    padding: 1.5rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative;
+    transition: border-color 0.2s;
+  }
+
+  .step:hover { border-color: rgba(88,101,242,0.3); }
+
+  .step::before {
+    content: "0" counter(step);
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 2.5rem;
+    color: rgba(88,101,242,0.15);
+    position: absolute;
+    top: 1rem;
+    right: 1.2rem;
+    line-height: 1;
+  }
+
+  .step h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .step p {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .step code {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent);
+    background: rgba(88,101,242,0.1);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+
+  /* ── Footer ── */
+  footer {
+    position: relative;
+    z-index: 1;
+    border-top: 1px solid var(--border);
+    padding: 3rem 2rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  footer a {
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  footer a:hover { color: var(--text); }
+
+  .footer-logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.5rem;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+  }
+
+  .footer-logo span { color: var(--accent); }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    nav { padding: 1rem 1.5rem; }
+    .nav-links { display: none; }
+    section { padding: 4rem 1.5rem; }
+    .features-grid { grid-template-columns: 1fr; }
+    .cmd-row { flex-wrap: wrap; gap: 0.5rem; }
+    .cmd-name { min-width: unset; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <a href="#" class="nav-logo">Mod<span>Suite</span></a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#commands">Commands</a></li>
+    <li><a href="#setup">Setup</a></li>
+    <li><a href="https://github.com" class="nav-cta">GitHub →</a></li>
+  </ul>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-badge">Open Source · Python · discord.py</div>
+
+  <h1>The mod suite<br>your server <em>deserves</em></h1>
+
+  <p class="hero-sub">
+    ModSuite is a self-hosted Discord moderation bot with ModMail, Jail, self-roles, raid protection, and a full UI panel — no subscriptions, no limits.
+  </p>
+
+  <div class="hero-actions">
+    <a href="https://github.com" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+      View on GitHub
+    </a>
+    <a href="#setup" class="btn btn-secondary">Quick Start →</a>
+  </div>
+
+  <div class="terminal-wrap">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="dot dot-r"></div>
+        <div class="dot dot-y"></div>
+        <div class="dot dot-g"></div>
+        <div class="terminal-title">communitybot — python bot.py</div>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-dim">$</span> <span class="t-blue">python</span> bot.py</div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> <span class="t-green">Database initialised.</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> Loaded cog: <span class="t-yellow">cogs.setup</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> Loaded cog: <span class="t-yellow">cogs.modmail</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> Loaded cog: <span class="t-yellow">cogs.jail</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> Loaded cog: <span class="t-yellow">cogs.panel</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> Loaded cog: <span class="t-yellow">cogs.reports</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> <span class="t-green">Synced 16 command(s) to: Moose Cult</span></div>
+        <div><span class="t-dim">2026-05-09 [INFO]</span> <span class="t-pink">Logged in as CommunityBot#1953</span> ✓</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-label">What's included</div>
+  <h2>Everything. Out of the box.</h2>
+  <p class="section-desc">One <code style="font-family:'DM Mono',monospace;color:var(--accent);font-size:0.9em">/setup</code> command builds your entire server structure automatically.</p>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <span class="feature-icon">📬</span>
+      <h3>ModMail</h3>
+      <p>Users DM the bot to open a private ticket. Staff reply with anonymous or named responses. Transcripts are zipped and archived on close.</p>
+      <span class="feature-tag">DM → private channel</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🔒</span>
+      <h3>Jail System</h3>
+      <p>Pull a user aside privately. Strips all roles, creates a dedicated channel, then restores everything on unjail with a full transcript.</p>
+      <span class="feature-tag">role save & restore</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🛡️</span>
+      <h3>Mod Panel</h3>
+      <p>A persistent button panel for staff who prefer UI over commands. Context-aware — shows different controls in jail, modmail, and general channels.</p>
+      <span class="feature-tag">context-sensitive</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🎨</span>
+      <h3>Self-Roles</h3>
+      <p>14 color roles users can self-assign by reacting to a message. Bot enforces one color at a time and removes unknown reactions automatically.</p>
+      <span class="feature-tag">reaction-based</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">⚠️</span>
+      <h3>Warn System</h3>
+      <p>Track warnings per user with configurable auto-escalation. Reach the mute threshold and they're timed out. Reach the ban threshold and they're gone.</p>
+      <span class="feature-tag">auto-escalation</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🚨</span>
+      <h3>Raid Protection</h3>
+      <p>Monitors join rates and auto-locks the server when a raid is detected. Configurable thresholds. Manual lockdown and unlock commands included.</p>
+      <span class="feature-tag">auto-lockdown</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🚩</span>
+      <h3>Message Reports</h3>
+      <p>Right-click any message → Apps → Report. Standard reports ping Moderators. Emergency reports blast all staff with a hard-to-miss red embed.</p>
+      <span class="feature-tag">right-click context menu</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">💾</span>
+      <h3>Persistent Config</h3>
+      <p>SQLite database with automatic schema migrations. Update the bot and restart — new columns are added without wiping your data.</p>
+      <span class="feature-tag">zero data loss updates</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">📋</span>
+      <h3>Mod Log</h3>
+      <p>Every action — kicks, bans, mutes, warns, jails, lockdowns — is automatically posted to a dedicated staff-only log channel.</p>
+      <span class="feature-tag">full audit trail</span>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Commands -->
+<section id="commands">
+  <div class="section-label">Slash commands</div>
+  <h2>Commands at a glance</h2>
+  <p class="section-desc">All commands have Discord autocomplete. Staff who prefer buttons can use <code style="font-family:'DM Mono',monospace;color:var(--accent);font-size:0.9em">/mod</code> anywhere for the ephemeral panel.</p>
+
+  <div class="commands-list reveal">
+    <div class="cmd-row">
+      <span class="cmd-name">/setup</span>
+      <span class="cmd-desc">Run guided server setup — creates all roles, channels, and posts the self-roles message</span>
+      <span class="cmd-badge badge-admin">admin</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/panel</span>
+      <span class="cmd-desc">Post the persistent mod panel in a staff channel</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/mod</span>
+      <span class="cmd-desc">Open ephemeral context-aware panel anywhere — jail, modmail, or general</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/warn @user reason</span>
+      <span class="cmd-desc">Warn a member. Auto-mutes and auto-bans at configurable thresholds</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/history @user</span>
+      <span class="cmd-desc">View full moderation history — all warns, active and removed</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/jail @user [notify]</span>
+      <span class="cmd-desc">Strip roles and open a private channel. Optional DM notification flag</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/unjail @user</span>
+      <span class="cmd-desc">Release from jail and restore all original roles. Archives transcript</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/mute @user [10m/2h/1d]</span>
+      <span class="cmd-desc">Timeout a member. Duration supports d/h/m/s. Defaults to 30 days</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/kick · /ban · /unban</span>
+      <span class="cmd-desc">Standard moderation actions with optional reason and mod-log entry</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/lockdown · /unlock</span>
+      <span class="cmd-desc">Manually lock or restore all channels. Also triggers automatically on raids</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/reply · /close</span>
+      <span class="cmd-desc">Reply to a ModMail ticket (with anon flag) or close and archive it</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/userinfo · /serverinfo</span>
+      <span class="cmd-desc">User and server info. Staff see warn count and jail status</span>
+      <span class="cmd-badge badge-all">everyone</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">/purge [amount]</span>
+      <span class="cmd-desc">Bulk delete up to 100 messages in the current channel</span>
+      <span class="cmd-badge badge-staff">staff</span>
+    </div>
+    <div class="cmd-row">
+      <span class="cmd-name">Right-click → Report</span>
+      <span class="cmd-desc">Report any message anonymously. Emergency report pings all staff</span>
+      <span class="cmd-badge badge-all">everyone</span>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Setup -->
+<section id="setup">
+  <div class="section-label">Getting started</div>
+  <h2>Up in five minutes.</h2>
+  <p class="section-desc">ModSuite is self-hosted. You own your data, your bot, your server.</p>
+
+  <div class="steps reveal">
+    <div class="step">
+      <h3>Clone the repo</h3>
+      <p>Download or clone from GitHub. Requires <code>Python 3.11+</code> and a Discord bot token.</p>
+    </div>
+    <div class="step">
+      <h3>Install dependencies</h3>
+      <p>Run <code>pip install -r requirements.txt</code>. Only two packages: discord.py and python-dotenv.</p>
+    </div>
+    <div class="step">
+      <h3>Add your token</h3>
+      <p>Copy <code>.env.example</code> to <code>.env</code> and paste your bot token. Enable Members and Message Content intents.</p>
+    </div>
+    <div class="step">
+      <h3>Start the bot</h3>
+      <p>Run <code>python bot.py</code>. Commands sync to your server instantly on startup.</p>
+    </div>
+    <div class="step">
+      <h3>Run /setup</h3>
+      <p>One command creates every role, channel, and message automatically. Re-run safely at any time.</p>
+    </div>
+    <div class="step">
+      <h3>Post /panel</h3>
+      <p>Run <code>/panel</code> in a staff channel to post the persistent mod panel. Done.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-logo">Mod<span>Suite</span></div>
+  <p style="margin-bottom:1rem">Open source Discord moderation suite. Built with discord.py.</p>
+  <p>
+    <a href="https://github.com">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com">MIT License</a>
+    &nbsp;·&nbsp;
+    <a href="https://discord.com/developers/docs">Discord Docs</a>
+  </p>
+</footer>
+
+<script>
+  // Scroll reveal
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach((entry, i) => {
+      if (entry.isIntersecting) {
+        setTimeout(() => entry.target.classList.add('visible'), i * 80);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
+  reveals.forEach(el => observer.observe(el));
+
+  // Stagger feature cards and steps on reveal
+  document.querySelectorAll('.features-grid, .steps, .commands-list').forEach(grid => {
+    const children = grid.children;
+    grid.classList.add('reveal');
+    const gridObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          Array.from(children).forEach((child, i) => {
+            child.style.opacity = '0';
+            child.style.transform = 'translateY(16px)';
+            child.style.transition = `opacity 0.4s ease ${i * 60}ms, transform 0.4s ease ${i * 60}ms`;
+            setTimeout(() => {
+              child.style.opacity = '1';
+              child.style.transform = 'none';
+            }, 100 + i * 60);
+          });
+          gridObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.05 });
+    gridObserver.observe(grid);
+  });
+</script>
+</body>
+</html>
