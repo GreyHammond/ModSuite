@@ -1,104 +1,116 @@
 # Changelog
 
 All notable changes to ModSuite are documented here.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), with SemVer.
 
 ---
 
-## [1.0.0] — 2026-05-09
+## [2.2.0] — 2026-07-06
 
-Initial public release. 🎉
+### Added — AutoMod
+- **New `cogs/automod.py`** with a shared `on_message` listener covering all three filters.
+- **Spam detection** — per-user message velocity (default 5 msgs / 8s), duplicate-message detection (default 3), mention-flood limit (default 5), emoji-flood limit (default 15). Default action: delete + 10-minute timeout.
+- **Link filtering** — whitelist or blacklist mode, per-domain, with per-role and per-channel bypass. Preset whitelist covers Discord, YouTube, Twitter/X, GitHub, Tenor, Giphy. Preset blacklist covers common IP loggers.
+- **Discord invite filtering** as a separate toggle so servers can allow other links but block invites (or vice versa).
+- **Immune roles** — exempt specific roles from all AutoMod filters.
+- **Filter chain ordering** — invites → links → spam; first match wins to prevent double-punishment.
+- **New `/automod` command group** with 14 subcommands: `status`, `spam`, `spam_threshold`, `spam_action`, `links`, `link_mode`, `link_add`, `link_remove`, `link_action`, `link_bypass_channel`, `link_bypass_role`, `invites`, `invite_action`, `immune`.
+- **Rich mod-log embeds** for every AutoMod trigger, including offending message snippet, trigger type, action taken, and channel.
 
-### Core Bot
-- Bot connects silently on invite and waits for `/setup`
-- Guild-specific slash command sync on startup — commands appear instantly
-- Persistent SQLite configuration — survives restarts with no re-setup
-- Automatic schema migration — new columns added without wiping existing data
-- Status presence: *Watching for /setup | DM for help*
+### Added — Raid Response upgrades
+- **Active-raid auto-block** — new joiners during lockdown are automatically kicked or banned (configurable via `/raidcfg action`).
+- **Auto-verification bump** — server verification level raised to *highest* during lockdown, restored to previous level on unlock.
+- **Auto-unlock cooldown** — lockdown lifts automatically after N minutes (default 5; set 0 for manual-only).
+- **Account age gate** — flags joins from accounts younger than N days in the mod-log (default 0 = disabled).
+- **New `/raidcfg` command group**: `threshold`, `account_age`, `action`, `auto_verification`, `cooldown`.
 
-### /setup
-- Admin-only guided setup with ephemeral panel UI
-- **Customise Messages** modal — set welcome message, self-roles message, and ModMail opening message
-- **Warn & Raid Settings** modal — configure auto-escalation and raid detection thresholds
-- Automatically creates:
-  - 14 cosmetic color roles
-  - `Owner` role (green, Administrator permissions)
-  - `Moderator` role (red)
-  - `ModMail` category with `#modmail`, `#mod-log`, `#closed-tickets`, `#mod-panel`, `#reports`
-  - `Jail` category for private jail channels
-  - `#self-roles` with reaction message posted and emoji reactions added
-- Safe to re-run — finds and reuses existing roles and channels
+### Added — Database
+- 22 new `guild_config` columns for AutoMod + raid upgrades. Auto-migrated on next startup — no manual SQL.
 
-### Self-Roles
-- 14 color roles assignable via emoji reaction in `#self-roles`
-- Supports both standard Unicode emoji and custom server emoji
-- Enforces one color role at a time — switches automatically
-- Unknown emoji removed from the self-roles message automatically
-- Roles removed when user removes their reaction
+### Changed
+- `cogs/raid.py` rewritten to support the new upgrade set while preserving all v2.1 behaviour (`/lockdown`, `/unlock`, `/autorole`, join-velocity detection).
+- Bot cog load list bumped to 20 cogs with the addition of `cogs.automod`.
 
-### ModMail
-- Users DM the bot to open a support ticket
-- Bot sends configurable opening message to user
-- Private `#ticket-username` channel created in ModMail category
-- Owner and Moderator roles pinged in `#modmail` on new ticket
-- Staff reply via button modal or `/reply` slash command
-- Anonymous reply flag — user sees "Staff" instead of display name
-- Staff-side channel always shows the real sender regardless of anon flag
-- `/close` command and Close Ticket button — generates plain-text transcript, zips as `MMDDYYYY-username.zip`, posts to `#closed-tickets`, notifies user, deletes ticket channel
-- Incoming messages from a user with an open ticket routed to existing channel automatically
-
-### Moderation
-- `/kick @user [reason]` — kick with mod-log entry
-- `/ban @user [reason] [delete_days]` — ban with optional message purge
-- `/unban <user_id> [reason]` — unban by ID
-- `/mute @user [duration] [reason]` — Discord timeout with flexible duration parser (`10m`, `2h30m`, `1d`). Default: 30 days
-- `/unmute @user [reason]` — remove timeout
-- Auto-unmute background loop — handles durations beyond Discord's 28-day timeout limit
-- Welcome message posted to system channel on member join
-
-### Warn System
-- `/warn @user <reason>` — add a warning, DMs the user
-- `/unwarn <warn_id>` — soft-remove a warning by ID (record kept for history)
-- `/history @user` — full moderation history showing active and removed warnings
-- Configurable auto-escalation: auto-mute at warn threshold, auto-ban at ban threshold
-- Thresholds set per-server in `/setup`
-
-### Jail System
-- `/jail @user [reason] [notify]` — strips all assignable roles, creates private `#jail-username` channel
-- Optional DM notification to jailed user (per-use flag)
-- Staff and bot can see and message the jail channel; jailed user can only see their own jail channel
-- `/unjail @user` — restores all original roles, generates transcript, zips and archives to `#closed-tickets`, deletes jail channel, DMs user they've been released
-- Jail records persisted in DB — bot restart does not lose jail state
-
-### Mod Panel
-- `/panel` — posts a persistent button panel in any staff channel. Buttons: Warn, Mute, Kick, Ban, Jail, History, Purge, Lockdown, Unlock
-- `/mod` — ephemeral panel usable in any channel, context-aware:
-  - In a **ModMail ticket channel**: shows Reply, Close Ticket, Purge
-  - In a **Jail channel**: shows Unjail, Warn, Purge, User Info (with warn count and jail reason)
-  - Anywhere else: shows full general mod toolkit
-- All panel buttons call the same underlying functions as slash commands
-
-### Reports
-- Right-click any message → Apps → **Report Message** — anonymous report posted to `#reports`, pings `@Moderator`
-- Right-click any message → Apps → **Report Message (Emergency)** — red embed posted to `#reports`, pings both `@Moderator` and `@Owner`
-- Reporter identity never shown to staff
-- Ephemeral confirmation sent to reporter on submission
-
-### User & Server Info
-- `/userinfo [@user]` — account age, join date, roles. Staff also see active warn count and jail status
-- `/serverinfo` — member count, boost level, verification level, creation date
-- `/purge <amount>` — bulk delete up to 100 messages
-
-### Raid Protection
-- Automatic join rate monitoring — configurable threshold (default: 10 joins in 10 seconds)
-- Auto-lockdown: sets `send_messages=False` on all text channels for `@everyone` when threshold exceeded
-- `/lockdown` — manual lockdown
-- `/unlock` — restore all channel permissions
-- `/autorole [@role]` — assign a role automatically to every new member. Omit role to disable
-- All actions logged to `#mod-log`
-
-### Mod Log
-- Automatic embed posted to `#mod-log` for: kicks, bans, unbans, mutes, unmutes, auto-unmutes, warns, jails, unjails, lockdowns, unlocks
+### Documentation
+- New GitHub Pages site with hero, features, setup guide, filterable command reference, and this changelog.
+- README updated with AutoMod & Raid Response sections and expanded permissions checklist.
 
 ---
 
-*ModSuite follows [Semantic Versioning](https://semver.org).*
+## [2.1.0] — 2026-07-05
+
+### Added — Forum Thread Deletion
+- **New `cogs/threads.py`** with `/delete` command.
+- Forum-thread owners can now permanently delete their own threads via a two-step confirmation flow (Yes → ⚠️ Permanent → Delete).
+- Ownership check (`thread.owner_id`) enforced before showing confirmation prompts.
+- Deletion event logged to `#mod-log` with user mention, thread name, and timestamp.
+- 60-second confirmation timeout; buttons scoped to the invoker only.
+
+### Changed
+- Bot cog load list updated with `cogs.threads`.
+- Rebranded `README.md` from "CommunityBot" to "ModSuite" to match the internal `/setup` command text and Hammond Digital Studios branding.
+- README overhauled to document all 19 cogs (previously listed only 4), the FastAPI REST API, and the web dashboard.
+
+### Notes
+- No database schema changes required.
+- No breaking changes — existing installations upgrade by dropping in two files: `cogs/threads.py` and the updated `bot.py`.
+
+---
+
+## [2.0.0] — 2026-06-XX
+
+### Added — Web Stack
+- **New `api.py`** — FastAPI REST API running in-process on `127.0.0.1:8000` (loopback only, no auth by design; front with reverse proxy for remote access).
+- **New `web/` directory** — vanilla-JS SPA (no build step, no framework) with hash router.
+- Dashboard pages: **Dashboard**, **Setup**, **Configuration**, **Tickets**, **Warns**, **Notes**, **Mod Logs**, **Self-Roles**.
+- **Bot actions queue** (`bot_actions` table) — web UI queues Discord actions, bot polls every 5 seconds and executes with proper permissions.
+- **Presence persistence** — bot's activity type + text now persist across restarts via `presence_type` / `presence_text` config columns.
+
+### Added — New Cogs
+- `cogs/starboard.py` — multi-emoji starboards (`/starboard create|delete|threshold|addemoji|removeemoji|list`).
+- `cogs/streamer.py` — streamer tracking + go-live alerts (`/streamer add|remove|edit`, `/links add|remove|list`).
+- `cogs/verify.py` — `/verify`, `/unverify` gate flow.
+- `cogs/remindme.py` — `/timezone`, `/remindme`, `/reminders`.
+- `cogs/reactmessage.py` — custom multi-role react-role builder.
+- `cogs/move.py` — `/move` for relocating conversations.
+- `cogs/reports.py` — user-submitted content reports.
+
+### Added — Config Columns
+- Phase-2 pronoun roles, DM preference roles, self-roles message IDs, verified role ID, presence fields.
+
+### Changed
+- Bot title in `/setup` command changed from "CommunityBot" to "ModSuite".
+- API version tagged `2.0.0` in FastAPI app metadata.
+
+---
+
+## [1.9.0] — Prior Baseline
+
+### Features
+- Core cogs: `setup`, `selfroles`, `modmail`, `moderation`, `warns`, `jail`, `userinfo`, `raid`, `panel`, `notes`, `admin`, `messages`.
+- Slash-command based moderation (`/kick`, `/ban`, `/mute`, `/unmute`, `/warn`, `/history`, `/jail`, `/purge`).
+- ModMail: DM → private ticket channel, `/reply` + `/close`, transcript zipping, `#closed-tickets` archive.
+- Basic raid detection (join velocity → auto-lockdown), manual `/lockdown` and `/unlock`.
+- Self-roles: 14 color roles with reaction-based assignment.
+- SQLite persistence with auto-migrating schema.
+- Guided `/setup` wizard creating all default roles, categories, and channels.
+
+---
+
+## Upgrade Notes
+
+### 2.1 → 2.2
+- Overwrite `database.py`, `cogs/raid.py`, `cogs/automod.py` (new), and `bot.py`.
+- Restart the bot — schema migration is automatic on startup.
+- Run `/automod status` after restart to review defaults and enable link/invite filtering when ready.
+- Confirm bot has **Manage Messages**, **Moderate Members**, **Kick / Ban Members**, and **Manage Guild** in target channels/server.
+
+### 2.0 → 2.1
+- Drop in `cogs/threads.py` and the updated `bot.py`.
+- Restart. No DB migration required.
+- Ensure the bot has **Manage Threads** in your forum channels.
+
+### 1.9 → 2.0
+- Full replacement of the `modsuite_v2/` folder (excluding `venv/` and `communitybot.db`).
+- `pip install -r requirements.txt` — adds `fastapi`, `uvicorn`, `aiohttp`.
+- Restart. Schema migration is automatic.

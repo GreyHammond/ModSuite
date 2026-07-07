@@ -8,6 +8,7 @@ from discord.ext import commands
 from datetime import datetime, timezone, timedelta
 import database as db
 import config
+from utils import can_moderate, hierarchy_refusal_embed
 from .moderation import parse_duration, _fmt_td, _post_modlog as mod_log
 from .warns import do_warn
 from .jail import do_jail, do_unjail
@@ -55,6 +56,9 @@ class MuteModal(discord.ui.Modal, title="Mute Member"):
             except Exception:
                 return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
 
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+
         td = parse_duration(self.duration.value.strip()) if self.duration.value.strip() else None
         if td is None:
             td = timedelta(days=config.DEFAULT_MUTE_DAYS)
@@ -97,6 +101,8 @@ class KickModal(discord.ui.Modal, title="Kick Member"):
                 member = await self.guild.fetch_member(int(self.username.value.strip()))
             except Exception:
                 return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
             await member.kick(reason=f"{interaction.user} — {self.reason.value or 'No reason'}")
         except discord.Forbidden:
@@ -127,6 +133,8 @@ class BanModal(discord.ui.Modal, title="Ban Member"):
                 member = await self.guild.fetch_member(int(self.username.value.strip()))
             except Exception:
                 return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
             await member.ban(reason=f"{interaction.user} — {self.reason.value or 'No reason'}")
         except discord.Forbidden:
@@ -157,10 +165,13 @@ class WarnModal(discord.ui.Modal, title="Warn Member"):
             except Exception:
                 return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
 
+        cfg = db.get_config(self.guild.id)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+
         warn_id, total, escalation = await do_warn(
             self.guild, member, interaction.user, self.reason.value, self.bot
         )
-        cfg   = db.get_config(self.guild.id)
         embed = discord.Embed(title="⚠️ Member Warned", color=discord.Color.yellow(), timestamp=datetime.utcnow())
         embed.add_field(name="User",           value=f"{member} (`{member.id}`)", inline=True)
         embed.add_field(name="Total Warnings", value=str(total),                  inline=True)
@@ -189,6 +200,10 @@ class JailModal(discord.ui.Modal, title="Jail Member"):
                 member = await self.guild.fetch_member(int(self.username.value.strip()))
             except Exception:
                 return await interaction.response.send_message("❌ Member not found.", ephemeral=True)
+
+        cfg = db.get_config(self.guild.id)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
 
         if db.get_jail(self.guild.id, member.id):
             return await interaction.response.send_message("❌ Already jailed.", ephemeral=True)
@@ -382,6 +397,9 @@ class JailPanelView(discord.ui.View):
     @discord.ui.button(label="🔓 Unjail", style=discord.ButtonStyle.success, row=0)
     async def btn_unjail(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_staff(interaction): return
+        cfg = db.get_config(interaction.guild_id)
+        if self.member and not can_moderate(interaction.user, self.member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         ok, msg = await do_unjail(interaction.guild, self.member, interaction.user, self.bot)
         if ok:

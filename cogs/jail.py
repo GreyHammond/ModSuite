@@ -1,10 +1,12 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
-from datetime import datetime
+from discord.ext import commands, tasks
+from datetime import datetime, timezone
 import zipfile, io
 import database as db
 import config
+from utils import can_moderate, hierarchy_refusal_embed, get_bot_message, _fmt
+from .moderation import parse_duration, _fmt_td
 
 
 async def _post_modlog(guild: discord.Guild, cfg: dict, embed: discord.Embed):
@@ -36,28 +38,87 @@ def _build_jail_transcript(jail: dict, messages: list) -> str:
     return "\n".join(lines)
 
 
-async def do_jail(guild: discord.Guild, member: discord.Member, mod: discord.Member,
-                  reason: str, notify: bool, bot: commands.Bot) -> discord.TextChannel:
+def _build_warning_history_embed(
+    guild: discord.Guild,
+    member: discord.Member,
+    reason: str,
+    mod: "discord.Member | None",
+    jail_end_time: "datetime | None",
+) -> discord.Embed:
+    """Build the Warning History embed posted to #mod-log on every jail action."""
+    active_warns = db.get_warns(guild.id, member.id, active_only=True)
+    all_warns    = db.get_warns(guild.id, member.id, active_only=False)
+
+    if jail_end_time:
+        # Build a human-readable duration from the stored end time
+        now = datetime.utcnow()
+        delta = jail_end_time - now
+        jail_type = f"Temp Jail ({_fmt_td(delta)})" if delta.total_seconds() > 0 else "Temp Jail (expired)"
+    else:
+        jail_type = "Permanent Jail"
+
+    if mod is None:
+        jailed_by_str = "ModSuite (Auto)"
+    else:
+        jailed_by_str = mod.mention
+
+    embed = discord.Embed(
+        title=f"📋 Jail — Warning History: {member.display_name}",
+        color=0xE67E22,
+        timestamp=datetime.utcnow(),
+    )
+    embed.add_field(name="Jail Type",    value=jail_type,       inline=True)
+    embed.add_field(name="Reason",       value=reason,          inline=True)
+    embed.add_field(name="Jailed by",    value=jailed_by_str,   inline=True)
+    embed.add_field(name="Active Warns", value=str(len(active_warns)) if active_warns else "No prior warnings on record", inline=True)
+    embed.add_field(name="Total Warns",  value=str(len(all_warns)),  inline=True)
+
+    for w in active_warns:
+        date_str = w["timestamp"][:10]
+        embed.add_field(
+            name=f"Warn #{w['id']}",
+            value=f"{w['reason']} — issued by {w['mod_name']} on {date_str}",
+            inline=False,
+        )
+
+    embed.set_footer(text="Review full history with /history @user")
+    return embed
+
+
+async def do_jail(
+    guild: discord.Guild,
+    member: discord.Member,
+    mod: "discord.Member | None",
+    reason: str,
+    notify: bool,
+    bot: commands.Bot,
+    jail_end_time: "datetime | None" = None,
+) -> discord.TextChannel:
     cfg = db.get_config(guild.id)
+
+    # Derive display strings for mod (supports None = automated action)
+    mod_display = str(mod) if mod else "ModSuite (Auto)"
+    mod_id      = mod.id   if mod else bot.user.id
+    mod_name    = mod.display_name if mod else "ModSuite (Auto)"
 
     # Save and strip all assignable roles
     saved_role_ids = [r.id for r in member.roles if r != guild.default_role and r.is_assignable()]
     roles_to_remove = [r for r in member.roles if r != guild.default_role and r.is_assignable()]
     if roles_to_remove:
-        await member.remove_roles(*roles_to_remove, reason=f"Jailed by {mod}")
+        await member.remove_roles(*roles_to_remove, reason=f"Jailed by {mod_display}")
 
     # Get jail category
     jail_cat_id = cfg.get("jail_cat_id") if cfg else None
     jail_cat    = guild.get_channel(jail_cat_id) if jail_cat_id else None
 
-    owner_role = guild.get_role(cfg["owner_role_id"]) if cfg else None
-    mod_role   = guild.get_role(cfg["mod_role_id"])   if cfg else None
+    owner_role = guild.get_role(cfg["owner_role_id"]) if cfg and cfg.get("owner_role_id") else None
+    mod_role   = guild.get_role(cfg["mod_role_id"])   if cfg and cfg.get("mod_role_id")   else None
     everyone   = guild.default_role
 
     overwrites = {
-        everyone:     discord.PermissionOverwrite(read_messages=False),
-        member:       discord.PermissionOverwrite(read_messages=True, send_messages=True),
-        guild.me:     discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True),
+        everyone:  discord.PermissionOverwrite(read_messages=False),
+        member:    discord.PermissionOverwrite(read_messages=True, send_messages=True),
+        guild.me:  discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True),
     }
     if owner_role:
         overwrites[owner_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -69,22 +130,26 @@ async def do_jail(guild: discord.Guild, member: discord.Member, mod: discord.Mem
         f"jail-{safe_name}",
         category=jail_cat,
         overwrites=overwrites,
-        reason=f"Jail: {member} by {mod}",
+        reason=f"Jail: {member} by {mod_display}",
     )
 
-    db.add_jail(guild.id, member.id, jail_ch.id, saved_role_ids, reason, mod.id, mod.display_name)
+    db.add_jail(guild.id, member.id, jail_ch.id, saved_role_ids, reason,
+                mod_id, mod_name, jail_end_time=jail_end_time)
 
     # Header embed in jail channel
-    embed = discord.Embed(
+    header_embed = discord.Embed(
         title=f"🔒 {member.display_name} has been jailed",
         color=discord.Color.dark_red(),
         timestamp=datetime.utcnow(),
     )
-    embed.add_field(name="User",      value=f"{member.mention} (`{member.id}`)", inline=True)
-    embed.add_field(name="Jailed by", value=mod.mention,                         inline=True)
-    embed.add_field(name="Reason",    value=reason,                              inline=False)
-    embed.set_footer(text="Use /unjail @user to release them and restore their roles.")
-    await jail_ch.send(embed=embed)
+    header_embed.add_field(name="User",      value=f"{member.mention} (`{member.id}`)", inline=True)
+    header_embed.add_field(name="Jailed by", value=mod_display,                         inline=True)
+    header_embed.add_field(name="Reason",    value=reason,                              inline=False)
+    if jail_end_time:
+        header_embed.add_field(name="Duration", value=_fmt_td(jail_end_time - datetime.utcnow()), inline=True)
+        header_embed.add_field(name="Expires",  value=f"<t:{int(jail_end_time.replace(tzinfo=timezone.utc).timestamp())}:F>", inline=True)
+    header_embed.set_footer(text="Use /unjail @user to release them and restore their roles.")
+    await jail_ch.send(embed=header_embed)
 
     # Message to the user in the jail channel
     user_embed = discord.Embed(description=config.DEFAULT_JAIL_MSG, color=discord.Color.dark_red())
@@ -93,22 +158,36 @@ async def do_jail(guild: discord.Guild, member: discord.Member, mod: discord.Mem
     # Optional DM
     if notify:
         try:
-            dm_embed = discord.Embed(
-                description=f"You have been pulled into a private channel in **{guild.name}**.\n**Reason:** {reason}\nPlease check the server.",
-                color=discord.Color.dark_red(),
+            duration_str = _fmt_td(jail_end_time - datetime.utcnow()) if jail_end_time else ""
+            text = _fmt(
+                get_bot_message(db, str(guild.id), "jail_dm"),
+                user=member.mention, reason=reason, duration=duration_str,
             )
+            dm_embed = discord.Embed(description=text, color=discord.Color.dark_red())
             await member.send(embed=dm_embed)
         except discord.Forbidden:
             pass
 
+    # Warning History embed to mod-log
+    history_embed = _build_warning_history_embed(guild, member, reason, mod, jail_end_time)
+    await _post_modlog(guild, cfg, history_embed)
+
     return jail_ch
 
 
-async def do_unjail(guild: discord.Guild, member: discord.Member, mod: discord.Member, bot: commands.Bot):
+async def do_unjail(
+    guild: discord.Guild,
+    member: discord.Member,
+    mod: "discord.Member | None",
+    bot: commands.Bot,
+) -> tuple[bool, str]:
     cfg  = db.get_config(guild.id)
     jail = db.get_jail(guild.id, member.id)
     if jail is None:
         return False, "That user is not currently jailed."
+
+    mod_display = mod.mention if mod else "ModSuite (Temp Jail Expired)"
+    mod_str     = str(mod) if mod else "ModSuite (Auto)"
 
     # Restore roles
     roles_to_restore = []
@@ -117,7 +196,7 @@ async def do_unjail(guild: discord.Guild, member: discord.Member, mod: discord.M
         if role and role.is_assignable():
             roles_to_restore.append(role)
     if roles_to_restore:
-        await member.add_roles(*roles_to_restore, reason=f"Unjailed by {mod}")
+        await member.add_roles(*roles_to_restore, reason=f"Unjailed by {mod_str}")
 
     # Archive transcript
     jail_ch = guild.get_channel(jail["channel_id"])
@@ -141,19 +220,20 @@ async def do_unjail(guild: discord.Guild, member: discord.Member, mod: discord.M
                 timestamp=datetime.utcnow(),
             )
             arch_embed.add_field(name="User",       value=f"{member} (`{member.id}`)", inline=True)
-            arch_embed.add_field(name="Released by", value=mod.mention,               inline=True)
+            arch_embed.add_field(name="Released by", value=mod_display,               inline=True)
             await closed_ch.send(embed=arch_embed, file=discord.File(zip_buf, filename=zip_name))
 
-        await jail_ch.delete(reason=f"Unjailed by {mod}")
+        await jail_ch.delete(reason=f"Unjailed by {mod_str}")
 
     db.remove_jail(guild.id, member.id)
 
     # Notify user
     try:
-        dm_embed = discord.Embed(
-            description=f"You have been released from jail in **{guild.name}**. Your roles have been restored.",
-            color=discord.Color.green(),
+        text = _fmt(
+            get_bot_message(db, str(guild.id), "unjail_dm"),
+            user=member.mention,
         )
+        dm_embed = discord.Embed(description=text, color=discord.Color.green())
         await member.send(embed=dm_embed)
     except discord.Forbidden:
         pass
@@ -161,7 +241,7 @@ async def do_unjail(guild: discord.Guild, member: discord.Member, mod: discord.M
     # Log
     log_embed = discord.Embed(title="🔓 Member Unjailed", color=discord.Color.green(), timestamp=datetime.utcnow())
     log_embed.add_field(name="User",        value=f"{member} (`{member.id}`)", inline=True)
-    log_embed.add_field(name="Released by", value=mod.mention,                inline=True)
+    log_embed.add_field(name="Released by", value=mod_display,                inline=True)
     await _post_modlog(guild, cfg, log_embed)
 
     return True, "ok"
@@ -170,6 +250,10 @@ async def do_unjail(guild: discord.Guild, member: discord.Member, mod: discord.M
 class Jail(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.auto_unjail_loop.start()
+
+    def cog_unload(self):
+        self.auto_unjail_loop.cancel()
 
     @app_commands.command(name="jail", description="Jail a member — strips roles and creates a private channel.")
     @app_commands.describe(member="Member to jail", reason="Reason", notify="DM the user that they've been jailed?")
@@ -178,6 +262,8 @@ class Jail(commands.Cog):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         if member.bot:
             return await interaction.response.send_message("❌ Cannot jail a bot.", ephemeral=True)
         if db.get_jail(interaction.guild_id, member.id):
@@ -203,14 +289,86 @@ class Jail(commands.Cog):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
 
-        # Respond first — the channel gets deleted during unjail which breaks edit_original_response
         ok_check = db.get_jail(interaction.guild_id, member.id)
         if not ok_check:
             return await interaction.response.send_message("❌ That user is not currently jailed.", ephemeral=True)
 
+        # Respond first — the channel gets deleted during unjail which breaks edit_original_response
         await interaction.response.send_message(f"🔓 Releasing {member.mention}...", ephemeral=True)
-        ok, msg = await do_unjail(interaction.guild, member, interaction.user, self.bot)
+        await do_unjail(interaction.guild, member, interaction.user, self.bot)
+
+    @app_commands.command(name="tempjail", description="Temporarily jail a member for a fixed duration.")
+    @app_commands.describe(
+        member="Member to jail",
+        duration="Duration: 10m, 2h, 1d, 2h30m",
+        reason="Reason",
+        notify="DM the user?",
+    )
+    async def tempjail(self, interaction: discord.Interaction, member: discord.Member,
+                       duration: str, reason: str = "No reason provided.", notify: bool = True):
+        cfg = db.get_config(interaction.guild_id)
+        if not _is_staff(interaction.user, cfg):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+        if member.bot:
+            return await interaction.response.send_message("❌ Cannot jail a bot.", ephemeral=True)
+        if db.get_jail(interaction.guild_id, member.id):
+            return await interaction.response.send_message("❌ That user is already jailed.", ephemeral=True)
+
+        td = parse_duration(duration)
+        if td is None:
+            return await interaction.response.send_message(
+                "❌ Invalid duration. Use formats like `10m`, `2h`, `1d`, `2h30m`.", ephemeral=True
+            )
+
+        jail_end_time = datetime.utcnow() + td
+
+        await interaction.response.defer(ephemeral=True)
+        jail_ch = await do_jail(
+            interaction.guild, member, interaction.user, reason, notify, self.bot,
+            jail_end_time=jail_end_time,
+        )
+
+        log_embed = discord.Embed(title="🔒 Member Temp-Jailed", color=discord.Color.dark_red(), timestamp=datetime.utcnow())
+        log_embed.add_field(name="User",      value=f"{member} (`{member.id}`)", inline=True)
+        log_embed.add_field(name="Jailed by", value=interaction.user.mention,    inline=True)
+        log_embed.add_field(name="Duration",  value=_fmt_td(td),                 inline=True)
+        log_embed.add_field(name="Reason",    value=reason,                      inline=False)
+        log_embed.add_field(name="Channel",   value=jail_ch.mention,             inline=True)
+        await _post_modlog(interaction.guild, cfg, log_embed)
+
+        await interaction.edit_original_response(
+            content=f"✅ {member.mention} has been temp-jailed for {_fmt_td(td)} in {jail_ch.mention}."
+        )
+
+    @tasks.loop(seconds=60)
+    async def auto_unjail_loop(self):
+        now     = datetime.utcnow()
+        expired = db.get_expired_jails(now)
+        for row in expired:
+            guild = self.bot.get_guild(row["guild_id"])
+            if guild is None:
+                db.remove_jail(row["guild_id"], row["user_id"])
+                continue
+            member = guild.get_member(row["user_id"])
+            if member is None:
+                db.remove_jail(row["guild_id"], row["user_id"])
+                continue
+            try:
+                # actor=None signals automated action — can_moderate allows everything except server owner
+                await do_unjail(guild, member, None, self.bot)
+            except Exception as e:
+                import logging
+                logging.getLogger("ModSuite.jail").warning(f"Auto-unjail failed for {row['user_id']}: {e}")
+                db.remove_jail(row["guild_id"], row["user_id"])
+
+    @auto_unjail_loop.before_loop
+    async def before_auto_unjail_loop(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot: commands.Bot):

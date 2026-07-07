@@ -17,29 +17,43 @@ class UserInfo(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="userinfo", description="View information about a user.")
-    @app_commands.describe(member="Member to look up (defaults to yourself)")
-    async def userinfo(self, interaction: discord.Interaction, member: discord.Member = None):
-        member = member or interaction.user
-        cfg    = db.get_config(interaction.guild_id)
-
+    @app_commands.describe(member="Member mention or user ID (defaults to yourself)")
+    async def userinfo(self, interaction: discord.Interaction, member: str = None):
+        from utils import resolve_user
+        cfg = db.get_config(interaction.guild_id)
         is_staff = _is_staff(interaction.user, cfg)
-        warns    = db.get_active_warn_count(interaction.guild_id, member.id) if is_staff else None
-        jailed   = db.get_jail(interaction.guild_id, member.id) is not None if is_staff else None
+
+        if member is None:
+            user = interaction.user
+            is_member = True
+        else:
+            try:
+                user, is_member = await resolve_user(self.bot, interaction.guild, member)
+            except ValueError as e:
+                return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+
+        warns  = db.get_active_warn_count(interaction.guild_id, user.id) if is_staff else None
+        jailed = db.get_jail(interaction.guild_id, user.id) is not None if is_staff else None
 
         embed = discord.Embed(
-            title=f"👤 {member.display_name}",
-            color=member.color if member.color.value else discord.Color.blurple(),
+            title=f"👤 {user.display_name if is_member else user.name}",
+            color=user.color if is_member and user.color.value else discord.Color.blurple(),
             timestamp=datetime.utcnow(),
         )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="Username",   value=str(member),                                             inline=True)
-        embed.add_field(name="ID",         value=str(member.id),                                          inline=True)
-        embed.add_field(name="Bot?",       value="Yes" if member.bot else "No",                           inline=True)
-        embed.add_field(name="Account Created", value=f"<t:{int(member.created_at.timestamp())}:R>",      inline=True)
-        embed.add_field(name="Joined Server",   value=f"<t:{int(member.joined_at.timestamp())}:R>" if member.joined_at else "Unknown", inline=True)
+        if hasattr(user, 'display_avatar'):
+            embed.set_thumbnail(url=user.display_avatar.url)
 
-        roles = [r.mention for r in reversed(member.roles) if r != interaction.guild.default_role]
-        embed.add_field(name=f"Roles ({len(roles)})", value=" ".join(roles[:10]) or "None", inline=False)
+        embed.add_field(name="Username", value=str(user), inline=True)
+        embed.add_field(name="ID",       value=str(user.id), inline=True)
+        embed.add_field(name="Bot?",     value="Yes" if user.bot else "No", inline=True)
+        embed.add_field(name="Account Created", value=f"<t:{int(user.created_at.timestamp())}:R>", inline=True)
+
+        if is_member:
+            embed.add_field(name="Joined Server", value=f"<t:{int(user.joined_at.timestamp())}:R>" if user.joined_at else "Unknown", inline=True)
+            roles = [r.mention for r in reversed(user.roles) if r != interaction.guild.default_role]
+            embed.add_field(name=f"Roles ({len(roles)})", value=" ".join(roles[:10]) or "None", inline=False)
+        else:
+            embed.add_field(name="Server Status", value="*Not in server*", inline=True)
 
         if is_staff:
             embed.add_field(name="Active Warns", value=str(warns), inline=True)

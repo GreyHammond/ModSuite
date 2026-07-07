@@ -7,36 +7,46 @@ class SelfRoles(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    def _get_color_role(self, guild: discord.Guild, emoji_str: str, cfg: dict) -> discord.Role | None:
-        """Return the Discord role for a given emoji string, or None."""
-        color_roles: dict = cfg.get("color_roles", {})
-        role_id = color_roles.get(emoji_str)
-        if role_id is None:
-            return None
-        return guild.get_role(int(role_id))
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _emoji_str(self, emoji) -> str:
-        """Normalise a raw reaction emoji to a string key."""
+        """Normalise a raw reaction emoji to a consistent string key."""
         if isinstance(emoji, str):
             return emoji
-        # Custom emoji → "<:name:id>"
         return str(emoji)
 
-    async def _is_selfroles_message(self, guild_id: int, message_id: int) -> bool:
-        cfg = db.get_config(guild_id)
-        if cfg is None:
-            return False
-        return cfg.get("selfroles_msg_id") == message_id
+    async def _remove_unknown_reaction(
+        self,
+        guild: discord.Guild,
+        channel_id: int,
+        message_id: int,
+        emoji,
+        member: discord.Member,
+    ):
+        """Remove an unrecognised reaction to keep self-roles messages clean."""
+        channel = guild.get_channel(channel_id)
+        if channel:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.remove_reaction(emoji, member)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
 
     # ── on_raw_reaction_add ───────────────────────────────────────────────────
+
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id:
             return
         if payload.guild_id is None:
             return
-        if not await self._is_selfroles_message(payload.guild_id, payload.message_id):
-            return
+
+        # Find which category (if any) owns this message
+        category = db.get_selfrole_category_by_message(
+            str(payload.guild_id), str(payload.message_id)
+        )
+        if category is None:
+            return  # Not a self-roles message — ignore entirely
 
         guild = self.bot.get_guild(payload.guild_id)
         if guild is None:
@@ -45,29 +55,61 @@ class SelfRoles(commands.Cog):
         if member is None or member.bot:
             return
 
-        cfg = db.get_config(payload.guild_id)
         emoji_key = self._emoji_str(payload.emoji)
-        role = self._get_color_role(guild, emoji_key, cfg)
-        if role is None:
+        roles     = db.get_selfrole_roles(category["category_id"])
+        role_row  = next((r for r in roles if r["emoji"] == emoji_key), None)
+
+        if role_row is None:
+            # Emoji not mapped to any role in this category — remove it
+            await self._remove_unknown_reaction(
+                guild, payload.channel_id, payload.message_id, payload.emoji, member
+            )
             return
 
-        # Remove any other color roles the user already has
-        color_role_ids = set(int(v) for v in cfg["color_roles"].values())
-        roles_to_remove = [r for r in member.roles if r.id in color_role_ids and r.id != role.id]
-        if roles_to_remove:
-            await member.remove_roles(*roles_to_remove, reason="SelfRoles: color switch")
+        role = guild.get_role(int(role_row["role_id"]))
+        if role is None:
+            return  # Role was deleted from Discord
 
-        if role not in member.roles:
-            await member.add_roles(role, reason=f"SelfRoles: reacted {emoji_key}")
+        # Per-role toggle: 1 = single-select, 0 = multi-select
+        # Fall back to category enforcement for legacy rows without toggle
+        is_single = bool(role_row.get("toggle", 0)) or category["enforcement"] == "single"
+
+        if is_single:
+            # Single-select: strip every other role in this category first
+            category_role_ids = {int(r["role_id"]) for r in roles}
+            roles_to_remove = [
+                r for r in member.roles
+                if r.id in category_role_ids and r.id != role.id
+            ]
+            if roles_to_remove:
+                await member.remove_roles(
+                    *roles_to_remove,
+                    reason=f"SelfRoles: {category['name']} switch",
+                )
+            if role not in member.roles:
+                await member.add_roles(
+                    role, reason=f"SelfRoles: {category['name']} {emoji_key}"
+                )
+        else:
+            # Multi-select: just add the role if not already held
+            if role not in member.roles:
+                await member.add_roles(
+                    role, reason=f"SelfRoles: {category['name']} {emoji_key}"
+                )
 
     # ── on_raw_reaction_remove ────────────────────────────────────────────────
+
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id:
             return
         if payload.guild_id is None:
             return
-        if not await self._is_selfroles_message(payload.guild_id, payload.message_id):
+
+        category = db.get_selfrole_category_by_message(
+            str(payload.guild_id), str(payload.message_id)
+        )
+        if category is None:
             return
 
         guild = self.bot.get_guild(payload.guild_id)
@@ -77,53 +119,18 @@ class SelfRoles(commands.Cog):
         if member is None or member.bot:
             return
 
-        cfg = db.get_config(payload.guild_id)
         emoji_key = self._emoji_str(payload.emoji)
-        role = self._get_color_role(guild, emoji_key, cfg)
-        if role is None:
-            return
+        roles     = db.get_selfrole_roles(category["category_id"])
+        role_row  = next((r for r in roles if r["emoji"] == emoji_key), None)
+        if role_row is None:
+            return  # Emoji not mapped — nothing to remove
 
-        if role in member.roles:
-            await member.remove_roles(role, reason=f"SelfRoles: removed reaction {emoji_key}")
-
-    # ── Guard: prevent anyone adding new emojis to the self-roles message ─────
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):  # noqa: F811
-        """Combined handler: guard unknown emojis AND assign roles."""
-        if payload.user_id == self.bot.user.id:
-            return
-        if payload.guild_id is None:
-            return
-        if not await self._is_selfroles_message(payload.guild_id, payload.message_id):
-            return
-
-        guild = self.bot.get_guild(payload.guild_id)
-        if guild is None:
-            return
-        member = payload.member or guild.get_member(payload.user_id)
-        if member is None or member.bot:
-            return
-
-        cfg = db.get_config(payload.guild_id)
-        emoji_key = self._emoji_str(payload.emoji)
-        role = self._get_color_role(guild, emoji_key, cfg)
-
-        if role is None:
-            # Unknown emoji — remove it to keep the message clean
-            channel = guild.get_channel(payload.channel_id)
-            if channel:
-                msg = await channel.fetch_message(payload.message_id)
-                await msg.remove_reaction(payload.emoji, member)
-            return
-
-        # Remove any other color roles
-        color_role_ids = set(int(v) for v in cfg["color_roles"].values())
-        roles_to_remove = [r for r in member.roles if r.id in color_role_ids and r.id != role.id]
-        if roles_to_remove:
-            await member.remove_roles(*roles_to_remove, reason="SelfRoles: color switch")
-
-        if role not in member.roles:
-            await member.add_roles(role, reason=f"SelfRoles: reacted {emoji_key}")
+        role = guild.get_role(int(role_row["role_id"]))
+        if role and role in member.roles:
+            await member.remove_roles(
+                role,
+                reason=f"SelfRoles: removed {category['name']} {emoji_key}",
+            )
 
 
 async def setup(bot: commands.Bot):

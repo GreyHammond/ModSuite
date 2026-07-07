@@ -1,9 +1,10 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 import database as db
 import config
+from utils import can_moderate, hierarchy_refusal_embed, get_bot_message, _fmt
 
 
 async def _post_modlog(guild: discord.Guild, cfg: dict, embed: discord.Embed):
@@ -21,15 +22,24 @@ def _is_staff(member: discord.Member, cfg: dict | None) -> bool:
     return any(r.id in staff_ids for r in member.roles) or member.guild_permissions.administrator
 
 
-async def do_warn(guild: discord.Guild, user: discord.Member, mod: discord.Member,
-                  reason: str, bot: commands.Bot) -> tuple[int, int, str]:
+async def do_warn(
+    guild: discord.Guild,
+    user: discord.Member,
+    mod: "discord.Member | None",
+    reason: str,
+    bot: commands.Bot,
+) -> tuple[int, int, str]:
     """
-    Add a warn, handle auto-escalation.
-    Returns (warn_id, total_active_warns, escalation_action)
-    escalation_action is one of: '', 'muted', 'banned'
+    Add a warn and handle auto-escalation.
+    Returns (warn_id, total_active_warns, escalation_action).
+    escalation_action is one of: '', 'jailed', 'banned'.
+    mod=None means automated action.
     """
     cfg = db.get_config(guild.id)
-    warn_id = db.add_warn(guild.id, user.id, mod.id, mod.display_name, reason)
+    mod_id   = mod.id           if mod else bot.user.id
+    mod_name = mod.display_name if mod else "ModSuite (Auto)"
+
+    warn_id = db.add_warn(guild.id, user.id, mod_id, mod_name, reason)
     total   = db.get_active_warn_count(guild.id, user.id)
     action  = ""
 
@@ -43,12 +53,23 @@ async def do_warn(guild: discord.Guild, user: discord.Member, mod: discord.Membe
         except discord.Forbidden:
             pass
     elif total >= mute_at:
-        try:
-            until = datetime.now(timezone.utc) + timedelta(hours=1)
-            await user.timeout(until, reason=f"Auto-mute: reached {total} warnings")
-            action = "muted"
-        except discord.Forbidden:
-            pass
+        # Replace auto-mute with auto-tempjail
+        if not db.get_jail(guild.id, user.id):
+            try:
+                from .jail import do_jail
+                from .moderation import parse_duration
+                raw_duration = (cfg.get("auto_jail_duration") if cfg else None) or "1d"
+                td = parse_duration(raw_duration) or __import__("datetime").timedelta(days=1)
+                jail_end_time = datetime.utcnow() + td
+                await do_jail(
+                    guild, user, None,
+                    f"Auto-jailed: warn threshold reached (warn #{warn_id})",
+                    True, bot,
+                    jail_end_time=jail_end_time,
+                )
+                action = "jailed"
+            except Exception:
+                pass
 
     return warn_id, total, action
 
@@ -58,22 +79,45 @@ class Warns(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="warn", description="Warn a member.")
-    @app_commands.describe(member="Member to warn", reason="Reason for the warning")
-    async def warn(self, interaction: discord.Interaction, member: discord.Member, reason: str):
+    @app_commands.describe(member="Member mention or user ID", reason="Reason for the warning")
+    async def warn(self, interaction: discord.Interaction, member: str, reason: str):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
-        if member.bot:
+
+        from utils import resolve_user
+        try:
+            user, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+
+        if user.bot:
             return await interaction.response.send_message("❌ Cannot warn a bot.", ephemeral=True)
 
+        if is_member:
+            if not can_moderate(interaction.user, user, cfg or {}):
+                return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+
         await interaction.response.defer()
-        warn_id, total, escalation = await do_warn(interaction.guild, member, interaction.user, reason, self.bot)
+
+        if is_member:
+            warn_id, total, escalation = await do_warn(interaction.guild, user, interaction.user, reason, self.bot)
+        else:
+            # User not in server — just record the warn, no escalation
+            mod_id = interaction.user.id
+            mod_name = interaction.user.display_name
+            warn_id = db.add_warn(interaction.guild_id, user.id, mod_id, mod_name, reason)
+            total = db.get_active_warn_count(interaction.guild_id, user.id)
+            escalation = ""
 
         embed = discord.Embed(title="⚠️ Member Warned", color=discord.Color.yellow(), timestamp=datetime.utcnow())
-        embed.add_field(name="User",     value=f"{member} (`{member.id}`)", inline=True)
-        embed.add_field(name="Warned by", value=interaction.user.mention,  inline=True)
-        embed.add_field(name="Reason",   value=reason,                     inline=False)
-        embed.add_field(name="Total Warnings", value=str(total),           inline=True)
+        name_display = f"{user} (`{user.id}`)"
+        if not is_member:
+            name_display += " *(not in server)*"
+        embed.add_field(name="User",          value=name_display,             inline=True)
+        embed.add_field(name="Warned by",     value=interaction.user.mention, inline=True)
+        embed.add_field(name="Reason",        value=reason,                   inline=False)
+        embed.add_field(name="Total Warnings",value=str(total),               inline=True)
         if escalation:
             embed.add_field(name="Auto Action", value=f"🤖 User was **{escalation}** automatically", inline=False)
         embed.set_footer(text=f"Warn ID: {warn_id}")
@@ -81,14 +125,16 @@ class Warns(commands.Cog):
         await _post_modlog(interaction.guild, cfg, embed)
         await interaction.followup.send(embed=embed)
 
-        try:
-            dm_embed = discord.Embed(
-                description=f"You have received a warning in **{interaction.guild.name}**.\n**Reason:** {reason}\n**Total warnings:** {total}",
-                color=discord.Color.yellow(),
-            )
-            await member.send(embed=dm_embed)
-        except discord.Forbidden:
-            pass
+        if is_member:
+            try:
+                text = _fmt(
+                    get_bot_message(db, str(interaction.guild_id), "warn_dm"),
+                    user=user.mention, reason=reason,
+                )
+                dm_embed = discord.Embed(description=text, color=discord.Color.yellow())
+                await user.send(embed=dm_embed)
+            except discord.Forbidden:
+                pass
 
     @app_commands.command(name="unwarn", description="Remove a specific warning by ID.")
     @app_commands.describe(warn_id="The warning ID to remove (shown in /history)")
@@ -104,29 +150,41 @@ class Warns(commands.Cog):
             await interaction.response.send_message(f"❌ Warning `#{warn_id}` not found or already removed.", ephemeral=True)
 
     @app_commands.command(name="history", description="View moderation history for a user.")
-    @app_commands.describe(member="Member to look up")
-    async def history(self, interaction: discord.Interaction, member: discord.Member):
+    @app_commands.describe(member="Member mention or user ID")
+    async def history(self, interaction: discord.Interaction, member: str):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
 
-        warns = db.get_warns(interaction.guild_id, member.id, active_only=False)
+        from utils import resolve_user
+        try:
+            user, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
+        warns = db.get_warns(interaction.guild_id, user.id, active_only=False)
+        notes = db.get_notes(str(interaction.guild_id), str(user.id), active_only=True)
+
+        name_display = user.display_name if is_member else str(user)
         embed = discord.Embed(
-            title=f"📋 Moderation History — {member.display_name}",
+            title=f"📋 Moderation History — {name_display}",
             color=discord.Color.blurple(),
             timestamp=datetime.utcnow(),
         )
-        embed.set_thumbnail(url=member.display_avatar.url)
+        if is_member:
+            embed.set_thumbnail(url=user.display_avatar.url)
+        if not is_member:
+            embed.description = f"*User is not in the server* (`{user.id}`)\n"
 
+        # ── Warnings section ───────────────────────────────────────────────────
         if not warns:
             embed.description = "No warnings on record."
         else:
             active   = [w for w in warns if w["active"]]
             inactive = [w for w in warns if not w["active"]]
-            embed.add_field(name="Active Warnings",   value=str(len(active)),   inline=True)
-            embed.add_field(name="Removed Warnings",  value=str(len(inactive)), inline=True)
-            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="Active Warnings",  value=str(len(active)),   inline=True)
+            embed.add_field(name="Removed Warnings", value=str(len(inactive)), inline=True)
+            embed.add_field(name="\u200b",           value="\u200b",           inline=True)
 
             for w in warns[-10:]:  # show last 10
                 status = "✅" if w["active"] else "~~removed~~"
@@ -134,6 +192,17 @@ class Warns(commands.Cog):
                     name=f"#{w['id']} {status}",
                     value=f"**By:** {w['mod_name']}\n**Reason:** {w['reason']}\n**Date:** {w['timestamp'][:10]}",
                     inline=True,
+                )
+
+        # ── Notes section (staff-only; never shown in /userinfo) ──────────────
+        if notes:
+            embed.add_field(name="\u200b", value=f"📝 **Staff Notes ({len(notes)} active)**", inline=False)
+            for n in notes:
+                date_str = n["created_at"][:10]
+                embed.add_field(
+                    name=f"Note #{n['note_id']} | {date_str} | by <@{n['author_id']}>",
+                    value=n["content"],
+                    inline=False,
                 )
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
