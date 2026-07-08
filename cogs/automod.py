@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import json
 import re
 import database as db
+from utils import get_bot_message, _fmt
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -42,6 +43,33 @@ def _load_json_list(raw: str | None) -> list:
 
 def _dump_json_list(items: list) -> str:
     return json.dumps(items)
+
+
+def _append_domain_fields(embed: "discord.Embed", label: str, domains: list) -> None:
+    """
+    Append one or more embed fields listing every domain in `domains`.
+    Handles Discord's 1024-char per-field limit by splitting into multiple
+    fields ("Whitelist", "Whitelist (cont.)", ...) if needed.
+    """
+    if not domains:
+        embed.add_field(name=f"{label} (0)", value="*(empty)*", inline=False)
+        return
+
+    # Build "chunks" that each fit within 1024 characters.
+    chunks: list[list[str]] = [[]]
+    running_len = 0
+    for d in domains:
+        piece = f"`{d}`\n"
+        if running_len + len(piece) > 1000:  # leave a small margin
+            chunks.append([])
+            running_len = 0
+        chunks[-1].append(piece)
+        running_len += len(piece)
+
+    total = len(domains)
+    for i, chunk in enumerate(chunks):
+        name = f"{label} ({total})" if i == 0 else f"{label} (cont. {i + 1})"
+        embed.add_field(name=name, value="".join(chunk) or "*(empty)*", inline=False)
 
 
 # ── Regex patterns ─────────────────────────────────────────────────────────────
@@ -292,9 +320,42 @@ class AutoMod(commands.Cog):
         acted = "Deleted message"
 
         if action == "mute":
-            until = datetime.now(timezone.utc) + timedelta(minutes=mute_minutes)
+            # Route through the bot's own mute system for consistency with /mute:
+            # - Discord timeout is still the enforcement mechanism (that's how /mute
+            #   works too — timeout is not a role in this bot).
+            # - The mute is recorded in the `mutes` table so /history and /unmute
+            #   see it just like a manual mute.
+            # - The user is DMed using the customizable `mute_dm` message template.
+            duration = timedelta(minutes=mute_minutes)
+            # Discord's max timeout is 28 days — cap it defensively.
+            discord_td = min(duration, timedelta(days=28))
+            until = datetime.now(timezone.utc) + duration
             try:
-                await member.timeout(until, reason=f"AutoMod: {reason}")
+                await member.timeout(
+                    datetime.now(timezone.utc) + discord_td,
+                    reason=f"AutoMod: {reason}",
+                )
+                # Log to mutes DB so it appears in /history and can be lifted with /unmute
+                try:
+                    db.add_mute(guild.id, member.id, until, f"AutoMod: {reason}")
+                except Exception:
+                    pass  # DB write failure shouldn't undo the mute
+                # DM the user using the standard mute template
+                try:
+                    text = _fmt(
+                        get_bot_message(db, str(guild.id), "mute_dm"),
+                        user=member.mention,
+                        reason=f"AutoMod: {reason}",
+                        duration=f"{mute_minutes}m",
+                    )
+                    await member.send(
+                        embed=discord.Embed(
+                            description=text,
+                            color=discord.Color.dark_orange(),
+                        )
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass  # user has DMs closed; not fatal
                 acted = f"Deleted + muted {mute_minutes}m"
             except discord.Forbidden:
                 acted = "Deleted message (mute failed: bot lacks Moderate Members)"
@@ -320,6 +381,30 @@ class AutoMod(commands.Cog):
                 acted = "Deleted message (ban failed)"
 
         # else: action == "delete" — nothing else to do
+
+        # Persist to mod_logs so this appears on the user's /history + dashboard.
+        # Action name matches manual moderation actions (MUTE / KICK / BAN)
+        # so filters work uniformly. Actor is the bot; the "AutoMod — trigger"
+        # prefix in the reason field makes the source unmistakable.
+        try:
+            mod_log_action = {
+                "mute":   "MUTE",
+                "kick":   "KICK",
+                "ban":    "BAN",
+                "delete": "AUTOMOD_DELETE",
+            }.get(action, "AUTOMOD_DELETE")
+            bot_user = self.bot.user
+            db.add_mod_log(
+                guild_id=str(guild.id),
+                action=mod_log_action,
+                target_id=str(member.id),
+                target_username=str(member),
+                actor_id=str(bot_user.id) if bot_user else "",
+                actor_username="AutoMod",
+                reason=f"AutoMod — {trigger}: {reason}",
+            )
+        except Exception:
+            pass  # never let the audit-log write fail an action
 
         # Modlog embed
         embed = discord.Embed(
@@ -521,6 +606,39 @@ class AutoMod(commands.Cog):
         await interaction.response.send_message(
             f"✅ Removed `{domain}` from the {list_type.value}.", ephemeral=True
         )
+
+    @automod_group.command(name="link_list", description="Show every domain on the whitelist and blacklist.")
+    @app_commands.describe(list_type="Which list to show — omit for both")
+    @app_commands.choices(list_type=[
+        app_commands.Choice(name="both",      value="both"),
+        app_commands.Choice(name="whitelist", value="whitelist"),
+        app_commands.Choice(name="blacklist", value="blacklist"),
+    ])
+    async def link_list(self, interaction: discord.Interaction,
+                        list_type: app_commands.Choice[str] = None):
+        cfg = db.get_config(interaction.guild_id) or {}
+        which = (list_type.value if list_type else "both")
+
+        embed = discord.Embed(
+            title="🔗 AutoMod Link Lists",
+            color=discord.Color.blurple(),
+            timestamp=datetime.utcnow(),
+        )
+        embed.description = (
+            f"Filter: **{'on' if cfg.get('link_filter_enabled') else 'off'}** · "
+            f"Mode: **{cfg.get('link_mode', 'whitelist')}** · "
+            f"Action: **{cfg.get('link_action', 'delete')}**"
+        )
+
+        if which in ("both", "whitelist"):
+            wl = _load_json_list(cfg.get("link_whitelist"))
+            _append_domain_fields(embed, "✅ Whitelist", wl)
+
+        if which in ("both", "blacklist"):
+            bl = _load_json_list(cfg.get("link_blacklist"))
+            _append_domain_fields(embed, "⛔ Blacklist", bl)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @automod_group.command(name="link_action", description="Set what happens when a disallowed link is posted.")
     @app_commands.choices(action=[

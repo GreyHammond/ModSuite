@@ -136,6 +136,17 @@ async def do_jail(
     db.add_jail(guild.id, member.id, jail_ch.id, saved_role_ids, reason,
                 mod_id, mod_name, jail_end_time=jail_end_time)
 
+    # Persist to mod_logs so this appears on the user's record and in the dashboard
+    db.add_mod_log(
+        guild_id=str(guild.id),
+        action="TEMPJAIL" if jail_end_time else "JAIL",
+        target_id=str(member.id),
+        target_username=str(member),
+        actor_id=str(mod_id),
+        actor_username=mod_name,
+        reason=reason,
+    )
+
     # Header embed in jail channel
     header_embed = discord.Embed(
         title=f"🔒 {member.display_name} has been jailed",
@@ -226,6 +237,17 @@ async def do_unjail(
         await jail_ch.delete(reason=f"Unjailed by {mod_str}")
 
     db.remove_jail(guild.id, member.id)
+
+    # Persist to mod_logs so this appears on the user's record and in the dashboard
+    db.add_mod_log(
+        guild_id=str(guild.id),
+        action="UNJAIL",
+        target_id=str(member.id),
+        target_username=str(member),
+        actor_id=str(mod.id) if mod else str(bot.user.id),
+        actor_username=str(mod) if mod else "ModSuite (auto)",
+        reason="Jail duration expired" if mod is None else "Released by staff",
+    )
 
     # Notify user
     try:

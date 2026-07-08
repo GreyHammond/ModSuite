@@ -43,6 +43,17 @@ async def do_warn(
     total   = db.get_active_warn_count(guild.id, user.id)
     action  = ""
 
+    # Log the warn itself to mod_logs
+    db.add_mod_log(
+        guild_id=str(guild.id),
+        action="WARN",
+        target_id=str(user.id),
+        target_username=str(user),
+        actor_id=str(mod_id),
+        actor_username=mod_name,
+        reason=reason,
+    )
+
     mute_at = cfg.get("warn_mute_threshold", config.DEFAULT_WARN_MUTE_AT) if cfg else config.DEFAULT_WARN_MUTE_AT
     ban_at  = cfg.get("warn_ban_threshold",  config.DEFAULT_WARN_BAN_AT)  if cfg else config.DEFAULT_WARN_BAN_AT
 
@@ -50,6 +61,15 @@ async def do_warn(
         try:
             await user.ban(reason=f"Auto-ban: reached {total} warnings")
             action = "banned"
+            db.add_mod_log(
+                guild_id=str(guild.id),
+                action="BAN",
+                target_id=str(user.id),
+                target_username=str(user),
+                actor_id=str(bot.user.id),
+                actor_username="ModSuite (auto)",
+                reason=f"Auto-ban: reached {total} warnings",
+            )
         except discord.Forbidden:
             pass
     elif total >= mute_at:
@@ -122,6 +142,15 @@ class Warns(commands.Cog):
             embed.add_field(name="Auto Action", value=f"🤖 User was **{escalation}** automatically", inline=False)
         embed.set_footer(text=f"Warn ID: {warn_id}")
 
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="WARN",
+            target_id=str(user.id),
+            target_username=str(user),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=f"{reason}" + (f" (auto: {escalation})" if escalation else ""),
+        )
         await _post_modlog(interaction.guild, cfg, embed)
         await interaction.followup.send(embed=embed)
 
@@ -143,8 +172,24 @@ class Warns(commands.Cog):
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
 
+        # Fetch the warn first so we can log the target user in mod_logs
+        target_user_id = ""
+        with db.get_conn() as conn:
+            row = conn.execute("SELECT user_id FROM warns WHERE id = ?", (warn_id,)).fetchone()
+            if row:
+                target_user_id = str(row["user_id"])
+
         removed = db.remove_warn(warn_id)
         if removed:
+            db.add_mod_log(
+                guild_id=str(interaction.guild_id),
+                action="UNWARN",
+                target_id=target_user_id,
+                target_username="",
+                actor_id=str(interaction.user.id),
+                actor_username=interaction.user.display_name,
+                reason=f"Removed warn #{warn_id}",
+            )
             await interaction.response.send_message(f"✅ Warning `#{warn_id}` removed.", ephemeral=True)
         else:
             await interaction.response.send_message(f"❌ Warning `#{warn_id}` not found or already removed.", ephemeral=True)
@@ -164,6 +209,18 @@ class Warns(commands.Cog):
 
         warns = db.get_warns(interaction.guild_id, user.id, active_only=False)
         notes = db.get_notes(str(interaction.guild_id), str(user.id), active_only=True)
+
+        # Pull all mod_logs entries for this user (kicks, bans, mutes, etc.)
+        # Filter client-side because get_mod_logs doesn't take a target filter.
+        with db.get_conn() as conn:
+            log_rows = conn.execute(
+                """SELECT * FROM mod_logs
+                   WHERE guild_id = ? AND target_id = ?
+                   ORDER BY id DESC
+                   LIMIT 25""",
+                (str(interaction.guild_id), str(user.id)),
+            ).fetchall()
+        mod_log_entries = [dict(r) for r in log_rows]
 
         name_display = user.display_name if is_member else str(user)
         embed = discord.Embed(
@@ -191,6 +248,31 @@ class Warns(commands.Cog):
                 embed.add_field(
                     name=f"#{w['id']} {status}",
                     value=f"**By:** {w['mod_name']}\n**Reason:** {w['reason']}\n**Date:** {w['timestamp'][:10]}",
+                    inline=True,
+                )
+
+        # ── Kicks / Bans / Mutes / etc. from mod_logs ─────────────────────────
+        # Warns are already displayed above; skip them here to avoid duplication.
+        NON_WARN_ACTIONS = {"KICK", "BAN", "UNBAN", "MUTE", "UNMUTE", "JAIL",
+                            "UNJAIL", "TEMPJAIL", "SOFTBAN", "UNWARN"}
+        enforcement = [l for l in mod_log_entries if (l.get("action") or "").upper() in NON_WARN_ACTIONS]
+        if enforcement:
+            action_icons = {
+                "KICK": "👢", "BAN": "🔨", "UNBAN": "✅",
+                "MUTE": "🔇", "UNMUTE": "🔊",
+                "JAIL": "🔒", "UNJAIL": "🔓", "TEMPJAIL": "⏱",
+                "SOFTBAN": "🧼", "UNWARN": "↩",
+            }
+            embed.add_field(name="\u200b", value=f"⚖️ **Enforcement History ({len(enforcement)} entries)**", inline=False)
+            for l in enforcement[:10]:  # show last 10
+                act = (l.get("action") or "").upper()
+                icon = action_icons.get(act, "•")
+                date_str = (l.get("timestamp") or "")[:10]
+                by = l.get("actor_username") or "?"
+                reason = l.get("reason") or "—"
+                embed.add_field(
+                    name=f"{icon} {act} #{l.get('id')} · {date_str}",
+                    value=f"**By:** {by}\n**Reason:** {reason}",
                     inline=True,
                 )
 

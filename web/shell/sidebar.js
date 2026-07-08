@@ -98,7 +98,7 @@ export function buildSidebar(el) {
   </div>
 </div>
 
-<select class="sb-server" id="server-selector">
+<select class="sb-server" id="server-selector" style="display:none">
   <option>Loading…</option>
 </select>
 

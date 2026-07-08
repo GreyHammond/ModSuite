@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import database as db
@@ -30,7 +31,7 @@ def set_bot(bot) -> None:
 
 # ── App & CORS ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="ModSuite API", version="2.0.0")
+app = FastAPI(title="ModSuite API", version="2.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -584,3 +585,579 @@ async def get_channels(guild_id: Optional[str] = None):
             "category":   ch.category.name if ch.category else None,
         })
     return results
+# =============================================================================
+# ── Wave 1 additions ── (append to api.py before the static-mount block) ─────
+# =============================================================================
+#
+# New endpoints:
+#   GET  /health                — bot uptime, latency, guilds, memory
+#   GET  /warns/trends?days=30  — warns count per day for last N days
+#   GET  /top-offenders?limit=5 — users with the most warns
+#   GET  /automod/summary       — quick AutoMod status (on/off + counts)
+#   GET  /config                — full guild_config as a dict
+#   PUT  /config                — bulk-update guild_config columns
+#
+# All read-only unless noted. PUT /config validates known columns only.
+
+import time as _time
+import os as _os
+
+# Track process start for uptime
+_START_TIME = _time.time()
+
+# Attempt psutil for memory; degrade gracefully if not installed
+try:
+    import psutil as _psutil
+    _PROC = _psutil.Process(_os.getpid())
+except Exception:
+    _PROC = None
+
+
+# ── Config schema (labels + sections for the frontend editor) ────────────────
+# The FE reads /config-schema to render the sectioned editor.
+# Add new sections/fields here as the bot grows.
+
+CONFIG_SECTIONS = [
+    {
+        "id": "general",
+        "label": "General",
+        "description": "Core roles, channels, and welcome behaviour.",
+        "fields": [
+            {"key": "owner_role_id",    "label": "Owner Role ID",    "type": "text",   "hint": "Role granted server-owner permissions."},
+            {"key": "mod_role_id",      "label": "Moderator Role ID","type": "text",   "hint": "Role granted staff permissions."},
+            {"key": "verified_role_id", "label": "Verified Role ID", "type": "text",   "hint": "Auto-assigned via /verify."},
+            {"key": "auto_role_id",     "label": "Auto-Role ID",     "type": "text",   "hint": "Auto-assigned on member join."},
+            {"key": "modmail_ch_id",    "label": "ModMail Channel",  "type": "text"},
+            {"key": "modlog_ch_id",     "label": "Mod-Log Channel",  "type": "text"},
+            {"key": "closed_ch_id",     "label": "Closed Tickets Channel", "type": "text"},
+            {"key": "selfroles_ch_id",  "label": "Self-Roles Channel","type": "text"},
+        ],
+    },
+    {
+        "id": "warns",
+        "label": "Warns & Thresholds",
+        "description": "Automatic escalation when a member hits a warn count.",
+        "fields": [
+            {"key": "warn_mute_threshold",   "label": "Mute at N warns",  "type": "number", "min": 0, "max": 20},
+            {"key": "warn_mute_duration_hrs","label": "Auto-mute duration (hours)", "type": "number", "min": 0},
+            {"key": "warn_ban_threshold",    "label": "Ban at N warns",   "type": "number", "min": 0, "max": 20},
+        ],
+    },
+    {
+        "id": "raid",
+        "label": "Raid Response",
+        "description": "Detects join floods and locks the server automatically.",
+        "fields": [
+            {"key": "raid_join_count",          "label": "Trigger: joins in window", "type": "number", "min": 3, "max": 100},
+            {"key": "raid_join_seconds",        "label": "Trigger window (seconds)", "type": "number", "min": 5, "max": 600},
+            {"key": "raid_min_account_age_days","label": "Flag joins younger than (days, 0 = off)", "type": "number", "min": 0, "max": 365},
+            {"key": "raid_active_action",       "label": "During raid, joiners are",  "type": "select",
+                "options": [{"value": "kick", "label": "Kicked"}, {"value": "ban", "label": "Banned"}]},
+            {"key": "raid_auto_verification",   "label": "Auto-raise verification during lockdown", "type": "bool"},
+            {"key": "raid_lockdown_cooldown_min","label": "Auto-unlock after (minutes, 0 = manual only)", "type": "number", "min": 0, "max": 1440},
+        ],
+    },
+    {
+        "id": "automod_spam",
+        "label": "AutoMod · Spam",
+        "description": "Message velocity, duplicates, mention floods, emoji floods.",
+        "fields": [
+            {"key": "spam_enabled",         "label": "Enabled",                       "type": "bool"},
+            {"key": "spam_msg_limit",       "label": "Messages allowed in window",    "type": "number", "min": 2, "max": 30},
+            {"key": "spam_window_sec",      "label": "Window (seconds)",              "type": "number", "min": 3, "max": 60},
+            {"key": "spam_dup_limit",       "label": "Duplicate messages allowed",    "type": "number", "min": 2, "max": 10},
+            {"key": "spam_mention_limit",   "label": "Mentions per message",          "type": "number", "min": 2, "max": 20},
+            {"key": "spam_emoji_limit",     "label": "Emojis per message",            "type": "number", "min": 3, "max": 50},
+            {"key": "spam_action",          "label": "Action on trigger",             "type": "select",
+                "options": [
+                    {"value": "delete", "label": "Delete only"},
+                    {"value": "mute",   "label": "Delete + mute (timeout)"},
+                    {"value": "kick",   "label": "Delete + kick"},
+                    {"value": "ban",    "label": "Delete + ban"},
+                ]},
+            {"key": "spam_mute_minutes",    "label": "Mute duration (minutes)",       "type": "number", "min": 1, "max": 1440},
+        ],
+    },
+    {
+        "id": "automod_links",
+        "label": "AutoMod · Links",
+        "description": "Whitelist or blacklist domains. Bypass by role or channel.",
+        "fields": [
+            {"key": "link_filter_enabled",  "label": "Enabled",                 "type": "bool"},
+            {"key": "link_mode",            "label": "Mode",                    "type": "select",
+                "options": [
+                    {"value": "whitelist", "label": "Whitelist (block all except approved)"},
+                    {"value": "blacklist", "label": "Blacklist (allow all except blocked)"},
+                ]},
+            {"key": "link_whitelist",       "label": "Whitelist (JSON array of domains)", "type": "json_list"},
+            {"key": "link_blacklist",       "label": "Blacklist (JSON array of domains)", "type": "json_list"},
+            {"key": "link_action",          "label": "Action on trigger",       "type": "select",
+                "options": [
+                    {"value": "delete", "label": "Delete only"},
+                    {"value": "mute",   "label": "Delete + mute"},
+                    {"value": "kick",   "label": "Delete + kick"},
+                    {"value": "ban",    "label": "Delete + ban"},
+                ]},
+            {"key": "link_bypass_roles",    "label": "Bypass role IDs (JSON array)",    "type": "json_list"},
+            {"key": "link_bypass_channels", "label": "Bypass channel IDs (JSON array)", "type": "json_list"},
+        ],
+    },
+    {
+        "id": "automod_invites",
+        "label": "AutoMod · Invites",
+        "description": "Block Discord invite links independently of the link filter.",
+        "fields": [
+            {"key": "invite_filter_enabled","label": "Enabled",           "type": "bool"},
+            {"key": "invite_action",        "label": "Action on trigger", "type": "select",
+                "options": [
+                    {"value": "delete", "label": "Delete only"},
+                    {"value": "mute",   "label": "Delete + mute"},
+                    {"value": "kick",   "label": "Delete + kick"},
+                    {"value": "ban",    "label": "Delete + ban"},
+                ]},
+        ],
+    },
+    {
+        "id": "automod_immune",
+        "label": "AutoMod · Immune Roles",
+        "description": "Members with these roles bypass all AutoMod filters.",
+        "fields": [
+            {"key": "automod_immune_roles", "label": "Immune role IDs (JSON array)", "type": "json_list"},
+        ],
+    },
+]
+
+
+def _all_editable_keys() -> set:
+    keys = set()
+    for section in CONFIG_SECTIONS:
+        for f in section["fields"]:
+            keys.add(f["key"])
+    return keys
+
+
+# ── /config-schema — used by the FE to render the editor ─────────────────────
+
+@app.get("/config-schema")
+async def get_config_schema():
+    return {"sections": CONFIG_SECTIONS}
+
+
+# ── /config — get everything as a flat dict ──────────────────────────────────
+
+@app.get("/config")
+async def get_config_endpoint(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    cfg = db.get_config(int(gid))
+    if cfg is None:
+        _err(404, f"No config for guild {gid}. Run /setup first.")
+    # Ensure JSON-serializable
+    out = {}
+    for k, v in cfg.items():
+        if isinstance(v, (str, int, float, bool)) or v is None:
+            out[k] = v
+        else:
+            out[k] = str(v)
+    return out
+
+
+# ── /config — bulk update (partial, only known keys) ─────────────────────────
+
+class ConfigPatch(BaseModel):
+    values: dict
+
+
+@app.put("/config")
+async def update_config_endpoint(body: ConfigPatch, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    editable = _all_editable_keys()
+    updates = {k: v for k, v in body.values.items() if k in editable}
+    if not updates:
+        _err(400, "No editable fields in request.")
+
+    # Coerce bools to int (SQLite has no bool type)
+    for k, v in list(updates.items()):
+        if isinstance(v, bool):
+            updates[k] = 1 if v else 0
+        # Normalize empty strings on ID fields → None
+        if v == "" and (k.endswith("_id") or k.endswith("_ch_id")):
+            updates[k] = None
+
+    db.upsert_config(int(gid), **updates)
+    return {"updated": list(updates.keys()), "count": len(updates)}
+
+
+# ── /health — bot process metrics ────────────────────────────────────────────
+
+@app.get("/health")
+async def get_health():
+    uptime_seconds = int(_time.time() - _START_TIME)
+
+    latency_ms = None
+    guilds_count = 0
+    total_members = 0
+    bot_user = None
+    if _bot is not None:
+        try:
+            latency_ms = round(_bot.latency * 1000, 1)
+        except Exception:
+            pass
+        guilds_count = len(_bot.guilds)
+        total_members = sum(g.member_count or 0 for g in _bot.guilds)
+        if _bot.user:
+            bot_user = {
+                "id":       str(_bot.user.id),
+                "username": _bot.user.name,
+                "avatar":   str(_bot.user.display_avatar.url) if _bot.user.display_avatar else None,
+            }
+
+    memory_mb = None
+    cpu_pct = None
+    if _PROC is not None:
+        try:
+            memory_mb = round(_PROC.memory_info().rss / (1024 * 1024), 1)
+            cpu_pct = _PROC.cpu_percent(interval=None)
+        except Exception:
+            pass
+
+    return {
+        "uptime_seconds": uptime_seconds,
+        "latency_ms":     latency_ms,
+        "guilds":         guilds_count,
+        "total_members":  total_members,
+        "memory_mb":      memory_mb,
+        "cpu_percent":    cpu_pct,
+        "bot":            bot_user,
+        "ready":          _bot is not None and getattr(_bot, "is_ready", lambda: False)(),
+    }
+
+
+# ── /warns/trends — warns per day for last N days ────────────────────────────
+
+@app.get("/warns/trends")
+async def get_warns_trends(days: int = 30, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    days = max(1, min(days, 90))
+
+    from datetime import datetime, timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT DATE(created_at) AS day, COUNT(*) AS n
+               FROM warns
+               WHERE guild_id = ? AND created_at >= ?
+               GROUP BY DATE(created_at)
+               ORDER BY day ASC""",
+            (str(gid), cutoff),
+        ).fetchall()
+
+    by_day = {r["day"]: r["n"] for r in rows}
+
+    # Fill in missing days with 0
+    from datetime import date
+    today = date.today()
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        out.append({"date": d, "count": by_day.get(d, 0)})
+    return out
+
+
+# ── /top-offenders — users with most warns ───────────────────────────────────
+
+@app.get("/top-offenders")
+async def get_top_offenders(limit: int = 5, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    limit = max(1, min(limit, 25))
+
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT user_id, COUNT(*) AS warn_count
+               FROM warns
+               WHERE guild_id = ? AND (pardoned = 0 OR pardoned IS NULL)
+               GROUP BY user_id
+               ORDER BY warn_count DESC
+               LIMIT ?""",
+            (str(gid), limit),
+        ).fetchall()
+
+    guild = _get_guild(gid)
+    out = []
+    for r in rows:
+        uid = r["user_id"]
+        name = f"User {uid}"
+        avatar = None
+        if guild:
+            member = guild.get_member(int(uid))
+            if member:
+                name = member.display_name
+                if member.display_avatar:
+                    avatar = str(member.display_avatar.url)
+        out.append({
+            "user_id":     str(uid),
+            "username":    name,
+            "avatar":      avatar,
+            "warn_count":  r["warn_count"],
+        })
+    return out
+
+
+# ── /automod/summary — quick AutoMod dashboard tile ──────────────────────────
+
+@app.get("/automod/summary")
+async def get_automod_summary(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    cfg = db.get_config(int(gid))
+    if cfg is None:
+        return {"spam": False, "links": False, "invites": False, "immune_count": 0}
+
+    import json as _json_mod
+    try:
+        immune = _json_mod.loads(cfg.get("automod_immune_roles") or "[]")
+        immune_count = len(immune) if isinstance(immune, list) else 0
+    except Exception:
+        immune_count = 0
+
+    return {
+        "spam":         bool(cfg.get("spam_enabled")),
+        "links":        bool(cfg.get("link_filter_enabled")),
+        "invites":      bool(cfg.get("invite_filter_enabled")),
+        "spam_action":  cfg.get("spam_action") or "mute",
+        "link_mode":    cfg.get("link_mode") or "whitelist",
+        "immune_count": immune_count,
+    }
+# =============================================================================
+# ── Wave 2 additions ── (append to api.py before the static-mount block) ─────
+# =============================================================================
+#
+# New endpoints:
+#   POST /warns                  — queue add-warn action for the bot to execute
+#   PUT  /notes/{note_id}        — edit a note's content
+#   GET  /users/search?q=NAME    — quick member lookup for filters
+
+
+# ── POST /warns — queue add-warn action ──────────────────────────────────────
+
+class WarnCreate(BaseModel):
+    user_id: str
+    reason: str
+    mod_id: Optional[str] = None
+    mod_name: Optional[str] = None
+
+
+@app.post("/warns")
+async def create_warn(body: WarnCreate, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    if not body.user_id or not body.reason.strip():
+        _err(400, "user_id and reason are required.")
+
+    action_id = db.queue_bot_action(
+        str(gid),
+        "add_warn",
+        {
+            "user_id":  str(body.user_id),
+            "reason":   body.reason.strip(),
+            "mod_id":   str(body.mod_id)  if body.mod_id  else None,
+            "mod_name": body.mod_name or "Dashboard",
+        },
+    )
+    return {"queued": True, "action_id": action_id}
+
+
+# ── PUT /notes/{note_id} — edit note content ─────────────────────────────────
+
+class NoteUpdate(BaseModel):
+    content: str
+
+
+@app.put("/notes/{note_id}")
+async def update_note(note_id: int, body: NoteUpdate, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    text = body.content.strip()
+    if not text:
+        _err(400, "Note content cannot be empty.")
+
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT note_id FROM notes WHERE note_id = ? AND guild_id = ? AND deleted = 0",
+            (note_id, str(gid)),
+        ).fetchone()
+        if row is None:
+            _err(404, f"Note {note_id} not found.")
+        conn.execute(
+            "UPDATE notes SET content = ? WHERE note_id = ?",
+            (text, note_id),
+        )
+    return {"updated": True, "note_id": note_id}
+
+
+# ── GET /users/search?q=NAME — member lookup ─────────────────────────────────
+
+@app.get("/users/search")
+async def search_users(q: str = "", guild_id: Optional[str] = None, limit: int = 20):
+    gid = _resolve_guild_id(guild_id)
+    guild = _get_guild(gid)
+    if guild is None:
+        return []
+
+    q = q.strip().lower()
+    limit = max(1, min(limit, 50))
+    out = []
+
+    for member in guild.members:
+        if len(out) >= limit:
+            break
+        name       = (member.name or "").lower()
+        display    = (member.display_name or "").lower()
+        if not q or q in name or q in display:
+            out.append({
+                "user_id":  str(member.id),
+                "username": member.display_name,
+                "handle":   member.name,
+                "avatar":   str(member.display_avatar.url) if member.display_avatar else None,
+            })
+
+    return out
+# =============================================================================
+# ── Wave 3 additions ── (append to api.py before the static-mount block) ─────
+# =============================================================================
+#
+# New endpoints:
+#   GET  /tickets/{ticket_id}          — full ticket detail
+#   GET  /tickets/{ticket_id}/transcript — messages list (for inline viewer)
+#   POST /tickets/{ticket_id}/reply    — queue reply action
+#   POST /tickets/{ticket_id}/close    — queue close action
+
+
+def _fetch_ticket(gid, ticket_id):
+    """Fetch a ticket by id. Returns dict or None."""
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM modmail_tickets WHERE id = ? AND guild_id = ?",
+            (ticket_id, gid),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ── GET /tickets/{ticket_id} — full ticket detail ────────────────────────────
+
+@app.get("/tickets/{ticket_id}")
+async def get_ticket(ticket_id: int, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    ticket = _fetch_ticket(int(gid), ticket_id)
+    if ticket is None:
+        _err(404, f"Ticket {ticket_id} not found.")
+
+    guild = _get_guild(gid)
+    uid   = str(ticket["user_id"])
+    username = _member_name(guild, uid)
+    avatar = None
+    if guild:
+        member = guild.get_member(int(uid))
+        if member and member.display_avatar:
+            avatar = str(member.display_avatar.url)
+
+    return {
+        "ticket_id":       ticket["id"],
+        "opener_id":       uid,
+        "opener_username": username,
+        "opener_avatar":   avatar,
+        "channel_id":      str(ticket["channel_id"]),
+        "status":          ticket["status"],
+        "opened_at":       _fmt_ts(ticket.get("opened_at")),
+        "closed_at":       _fmt_ts(ticket.get("closed_at")),
+    }
+
+
+# ── GET /tickets/{ticket_id}/transcript — full messages list ─────────────────
+
+@app.get("/tickets/{ticket_id}/transcript")
+async def get_ticket_transcript(ticket_id: int, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    ticket = _fetch_ticket(int(gid), ticket_id)
+    if ticket is None:
+        _err(404, f"Ticket {ticket_id} not found.")
+
+    messages = db.get_ticket_messages(ticket_id)
+
+    out = []
+    for m in messages:
+        # direction: "in" (from user) or "out"/"to_user" (from staff)
+        direction = m.get("direction", "in")
+        is_staff = direction in ("out", "to_user")
+        author = m.get("author_name") or ("Staff" if is_staff else f"User {m.get('author_id')}")
+        if is_staff and m.get("anonymous"):
+            author = "Staff"
+        out.append({
+            "id":        m.get("id"),
+            "author":    author,
+            "author_id": str(m.get("author_id", "")),
+            "content":   m.get("content", ""),
+            "timestamp": _fmt_ts(m.get("timestamp")),
+            "is_staff":  is_staff,
+            "anonymous": bool(m.get("anonymous")),
+        })
+    return {
+        "ticket_id": ticket_id,
+        "status":    ticket["status"],
+        "messages":  out,
+    }
+
+
+# ── POST /tickets/{ticket_id}/reply — queue reply action ─────────────────────
+
+class TicketReply(BaseModel):
+    message: str
+    anonymous: bool = False
+
+
+@app.post("/tickets/{ticket_id}/reply")
+async def reply_to_ticket(ticket_id: int, body: TicketReply, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    ticket = _fetch_ticket(int(gid), ticket_id)
+    if ticket is None:
+        _err(404, f"Ticket {ticket_id} not found.")
+    if (ticket.get("status") or "").lower() != "open":
+        _err(400, "Ticket is not open.")
+    if not body.message.strip():
+        _err(400, "Reply message cannot be empty.")
+
+    action_id = db.queue_bot_action(
+        str(gid),
+        "ticket_reply",
+        {
+            "ticket_id": ticket_id,
+            "message":   body.message.strip(),
+            "anonymous": bool(body.anonymous),
+        },
+    )
+    return {"queued": True, "action_id": action_id}
+
+
+# ── POST /tickets/{ticket_id}/close — queue close action ─────────────────────
+
+@app.post("/tickets/{ticket_id}/close")
+async def close_ticket(ticket_id: int, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    ticket = _fetch_ticket(int(gid), ticket_id)
+    if ticket is None:
+        _err(404, f"Ticket {ticket_id} not found.")
+    if (ticket.get("status") or "").lower() != "open":
+        _err(400, "Ticket is already closed.")
+
+    action_id = db.queue_bot_action(
+        str(gid),
+        "close_ticket",
+        {"ticket_id": ticket_id},
+    )
+    return {"queued": True, "action_id": action_id}
+
+
+# ── Web dashboard mount (must be LAST so API routes take priority) ────────────
+
+import os as _os_mount
+
+_WEB_DIR = _os_mount.path.join(_os_mount.path.dirname(__file__), "web")
+if _os_mount.path.isdir(_WEB_DIR):
+    app.mount("/", StaticFiles(directory=_WEB_DIR, html=True), name="web")

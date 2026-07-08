@@ -69,6 +69,15 @@ class Moderation(commands.Cog):
             await member.kick(reason=f"{interaction.user} — {reason}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot kick that member.", ephemeral=True)
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="KICK",
+            target_id=str(member.id),
+            target_username=str(member),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=reason,
+        )
         embed = discord.Embed(title="👢 Member Kicked", color=discord.Color.orange(), timestamp=datetime.utcnow())
         embed.add_field(name="User",      value=f"{member} (`{member.id}`)", inline=True)
         embed.add_field(name="Kicked by", value=interaction.user.mention,    inline=True)
@@ -119,6 +128,15 @@ class Moderation(commands.Cog):
         name_display = f"{user} (`{user.id}`)"
         if not is_member:
             name_display += " *(pre-emptive ban)*"
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="BAN",
+            target_id=str(user.id),
+            target_username=str(user),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=reason,
+        )
         embed.add_field(name="User",      value=name_display,             inline=True)
         embed.add_field(name="Banned by", value=interaction.user.mention, inline=True)
         embed.add_field(name="Reason",    value=reason,                   inline=False)
@@ -137,6 +155,15 @@ class Moderation(commands.Cog):
             await interaction.guild.unban(user, reason=f"{interaction.user} — {reason}")
         except Exception:
             return await interaction.response.send_message("❌ User not found or not banned.", ephemeral=True)
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="UNBAN",
+            target_id=str(user.id),
+            target_username=str(user),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=reason,
+        )
         embed = discord.Embed(title="✅ Member Unbanned", color=discord.Color.green(), timestamp=datetime.utcnow())
         embed.add_field(name="User",        value=f"{user} (`{user.id}`)", inline=True)
         embed.add_field(name="Unbanned by", value=interaction.user.mention, inline=True)
@@ -178,6 +205,15 @@ class Moderation(commands.Cog):
         embed.add_field(name="Duration", value=_fmt_td(td),                 inline=True)
         embed.add_field(name="Expires",  value=f"<t:{int(until.timestamp())}:F>", inline=True)
         embed.add_field(name="Reason",   value=reason,                      inline=False)
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="MUTE",
+            target_id=str(member.id),
+            target_username=str(member),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=f"{reason} (duration: {_fmt_td(td)})",
+        )
         await _post_modlog(interaction.guild, cfg, embed)
         await interaction.response.send_message(embed=embed)
 
@@ -194,6 +230,15 @@ class Moderation(commands.Cog):
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot unmute that member.", ephemeral=True)
         db.remove_mute(interaction.guild_id, member.id)
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="UNMUTE",
+            target_id=str(member.id),
+            target_username=str(member),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=reason,
+        )
         embed = discord.Embed(title="🔊 Member Unmuted", color=discord.Color.green(), timestamp=datetime.utcnow())
         embed.add_field(name="User",        value=f"{member} (`{member.id}`)", inline=True)
         embed.add_field(name="Unmuted by",  value=interaction.user.mention,    inline=True)
@@ -218,6 +263,15 @@ class Moderation(commands.Cog):
                 except Exception:
                     pass
             db.remove_mute(row["guild_id"], row["user_id"])
+            db.add_mod_log(
+                guild_id=str(row["guild_id"]),
+                action="UNMUTE",
+                target_id=str(row["user_id"]),
+                target_username=str(member) if member else "",
+                actor_id=str(self.bot.user.id),
+                actor_username="ModSuite (auto)",
+                reason="Mute duration expired",
+            )
             cfg = db.get_config(row["guild_id"])
             if cfg:
                 embed = discord.Embed(title="🔊 Auto-Unmuted", color=discord.Color.green(), timestamp=now)
