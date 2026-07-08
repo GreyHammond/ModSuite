@@ -10,7 +10,6 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import database as db
@@ -42,11 +41,28 @@ app.add_middleware(
         "http://127.0.0.1",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
+        "http://129.80.68.143",
+        "http://129.80.68.143:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Auth (Discord OAuth2) ─────────────────────────────────────────────────────
+# register_auth() is called by bot.py after set_bot(), so the bot reference
+# is available for role resolution.  See auth.py for details.
+
+_auth_registered = False
+
+def register_auth_routes(bot=None):
+    """Called once by bot.py to wire up Discord OAuth2 login."""
+    global _auth_registered
+    if _auth_registered:
+        return
+    _auth_registered = True
+    from auth import register_auth
+    register_auth(app, bot_ref=bot)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -344,15 +360,18 @@ async def get_notes(
     target_id: Optional[str] = None,
 ):
     gid = _resolve_guild_id(guild_id)
+    guild = _get_guild(gid)
     rows = db.get_all_notes(gid, target_id or "")
     return [
         {
-            "note_id":    r["note_id"],
-            "guild_id":   r["guild_id"],
-            "target_id":  r["target_id"],
-            "author_id":  r["author_id"],
-            "content":    r["content"],
-            "created_at": _fmt_ts(r.get("created_at")),
+            "note_id":         r["note_id"],
+            "guild_id":        r["guild_id"],
+            "target_id":       str(r["target_id"]),
+            "target_username": _member_name(guild, str(r["target_id"])),
+            "author_id":       str(r["author_id"]),
+            "author_username": _member_name(guild, str(r["author_id"])),
+            "content":         r["content"],
+            "created_at":      _fmt_ts(r.get("created_at")),
         }
         for r in rows
     ]
@@ -844,10 +863,10 @@ async def get_warns_trends(days: int = 30, guild_id: Optional[str] = None):
 
     with db.get_conn() as conn:
         rows = conn.execute(
-            """SELECT DATE(created_at) AS day, COUNT(*) AS n
+            """SELECT DATE(timestamp) AS day, COUNT(*) AS n
                FROM warns
-               WHERE guild_id = ? AND created_at >= ?
-               GROUP BY DATE(created_at)
+               WHERE guild_id = ? AND timestamp >= ?
+               GROUP BY DATE(timestamp)
                ORDER BY day ASC""",
             (str(gid), cutoff),
         ).fetchall()
@@ -875,7 +894,7 @@ async def get_top_offenders(limit: int = 5, guild_id: Optional[str] = None):
         rows = conn.execute(
             """SELECT user_id, COUNT(*) AS warn_count
                FROM warns
-               WHERE guild_id = ? AND (pardoned = 0 OR pardoned IS NULL)
+               WHERE guild_id = ? AND (active = 1 OR active IS NULL)
                GROUP BY user_id
                ORDER BY warn_count DESC
                LIMIT ?""",
@@ -1154,10 +1173,7 @@ async def close_ticket(ticket_id: int, guild_id: Optional[str] = None):
     return {"queued": True, "action_id": action_id}
 
 
-# ── Web dashboard mount (must be LAST so API routes take priority) ────────────
-
-import os as _os_mount
-
-_WEB_DIR = _os_mount.path.join(_os_mount.path.dirname(__file__), "web")
-if _os_mount.path.isdir(_WEB_DIR):
-    app.mount("/", StaticFiles(directory=_WEB_DIR, html=True), name="web")
+# ── Web dashboard mount ───────────────────────────────────────────────────────
+# Static file serving has moved into auth.py -> register_auth() so that
+# /auth/* routes are registered BEFORE the catch-all "/" mount.
+# Do not add a mount("/", ...) here.

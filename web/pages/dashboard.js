@@ -38,8 +38,8 @@ function injectStyles() {
     .scroll-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
     /* Activity items */
-    .act-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 16px; transition: background var(--transition); }
-    .act-item:hover { background: rgba(255,255,255,.02); }
+    .act-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 16px; transition: background var(--transition); cursor: pointer; }
+    .act-item:hover { background: rgba(255,255,255,.04); }
     .act-ico { width: 28px; height: 28px; border-radius: 50%; display:flex; align-items:center; justify-content:center; flex-shrink: 0; font-size: 12px; margin-top: 1px; }
     .act-ico.warn   { background: rgba(245,158,11,.14); }
     .act-ico.jail   { background: rgba(34,197,94,.14); }
@@ -130,7 +130,7 @@ function errState() {
   </div></div>`;
 }
 
-const ACT_ICONS = { warn:'⚠️', jail:'🔒', ban:'🔨', ticket:'💬', note:'🔖' };
+const ACT_ICONS = { warn:'⚠️', jail:'🔒', unjail:'🔓', ban:'🔨', kick:'👢', mute:'🔇', unmute:'🔊', softban:'⚔️', ticket:'💬', note:'🔖' };
 
 function buildPage({ stats, activity, jails, health, trends, offenders, automod }) {
   const acts     = Array.isArray(activity)  ? activity  : [];
@@ -216,13 +216,33 @@ function statCard(label, value, sub, cls) {
   </div>`;
 }
 
+const ACT_VERBS = {
+  warn: 'Warned', jail: 'Jailed', unjail: 'Unjailed', ban: 'Banned',
+  kick: 'Kicked', mute: 'Muted', unmute: 'Unmuted', softban: 'Softbanned',
+  ticket: 'Ticket from', note: 'Note on',
+};
+
 function actRow(item) {
-  const type = (item.type || 'warn').toLowerCase();
-  return `<div class="act-item">
+  const type   = (item.type || 'warn').toLowerCase();
+  const target = item.target_username
+    ? esc(item.target_username)
+    : (item.target_id ? `User ${esc(item.target_id)}` : 'Unknown user');
+  const actor  = item.actor_username ? esc(item.actor_username) : '';
+  const verb   = ACT_VERBS[type] || (type.charAt(0).toUpperCase() + type.slice(1));
+  const reason = item.reason ? ` — ${esc(item.reason)}` : '';
+
+  const desc = `${verb} ${target}${actor ? ` by ${actor}` : ''}${reason}`;
+
+  // No dedicated page per action type — warns go to the Warns page,
+  // everything else (jail/ban/kick/mute/etc.) goes to Mod Logs, which
+  // lists every action type.
+  const route = type === 'warn' ? 'warns' : 'modlogs';
+
+  return `<div class="act-item" onclick="location.hash='#${route}'" title="View in ${route === 'warns' ? 'Warns' : 'Mod Logs'}">
     <div class="act-ico ${type}">${ACT_ICONS[type] || '📋'}</div>
     <div class="act-body">
-      <div class="act-desc">${esc(item.description || item.action || '')}</div>
-      <div class="act-time">${ago(item.timestamp || item.created_at)}</div>
+      <div class="act-desc">${desc}</div>
+      <div class="act-time">${ago(item.timestamp)}</div>
     </div>
   </div>`;
 }

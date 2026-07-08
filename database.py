@@ -85,6 +85,8 @@ GUILD_CONFIG_COLUMNS = [
     ("raid_active_action",         "TEXT",    "'kick'"),   # kick | ban new joiners during active raid
     ("raid_auto_verification",     "INTEGER", "1"),        # auto-raise verification level during raid
     ("raid_lockdown_cooldown_min", "INTEGER", "5"),        # 0 = no auto-unlock
+    # ── v2.5 Honeypot ──
+    ("honeypot_channels",          "TEXT",    "'[]'"),   # JSON list of channel IDs that auto-ban on post
 ]
 
 # ── Column definitions for the jail table — auto-migration ────────────────────

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 import discord
 from discord.ext import commands
 import database as db
@@ -50,6 +51,7 @@ class CommunityBot(commands.Bot):
             "cogs.streamer",
             "cogs.threads",
             "cogs.automod",
+            "cogs.honeypot",
         ]
         for cog in cogs:
             await self.load_extension(cog)
@@ -59,15 +61,16 @@ class CommunityBot(commands.Bot):
         import uvicorn
         import api as api_module
         api_module.set_bot(self)
+        api_module.register_auth_routes(bot=self)
         uvicorn_config = uvicorn.Config(
             api_module.app,
-            host="127.0.0.1",
+            host="0.0.0.0",
             port=8000,
             log_level="warning",
         )
         server = uvicorn.Server(uvicorn_config)
         asyncio.get_event_loop().create_task(server.serve())
-        log.info("REST API starting on http://127.0.0.1:8000")
+        log.info("REST API starting on http://0.0.0.0:8000")
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (ID: {self.user.id})")

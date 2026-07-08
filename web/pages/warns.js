@@ -99,7 +99,8 @@ export async function render(container) {
   container.innerHTML = `<div class="wn-wrap">${Array(3).fill(`<div class="skeleton" style="height:76px;border-radius:10px;margin-bottom:10px"></div>`).join('')}</div>`;
   try {
     const data = await apiFetch('/warns');
-    _warns = Array.isArray(data) ? data : (data?.warns ?? []);
+    // API returns { total, results: [...] } — not a bare array or { warns: [...] }
+    _warns = Array.isArray(data) ? data : (data?.results ?? data?.warns ?? []);
     _search = ''; _activeOnly = true;
     container.innerHTML = buildPage();
     attach(container);
@@ -152,8 +153,9 @@ function addWarnModalHTML() {
 function byUser(warns) {
   const map = {};
   for (const w of warns) {
-    const k = w.user_id || w.username || 'unknown';
-    if (!map[k]) map[k] = { name: w.username || w.user_name || `User ${w.user_id}`, warns: [] };
+    // API field is target_id / target_username, not user_id / username
+    const k = w.target_id || w.target_username || 'unknown';
+    if (!map[k]) map[k] = { name: w.target_username || `User ${w.target_id}`, warns: [] };
     map[k].warns.push(w);
   }
   return Object.values(map);
@@ -165,9 +167,9 @@ function renderList(container) {
   if (!list) return;
 
   let filtered = _warns;
-  if (_activeOnly) filtered = filtered.filter(w => w.active !== false && !w.pardoned);
+  if (_activeOnly) filtered = filtered.filter(w => w.active !== false);
   if (_search) filtered = filtered.filter(w =>
-    (w.username || w.user_name || '').toLowerCase().includes(_search.toLowerCase())
+    (w.target_username || '').toLowerCase().includes(_search.toLowerCase())
   );
 
   const groups = byUser(filtered);
@@ -179,7 +181,7 @@ function renderList(container) {
   }
 
   list.innerHTML = groups.map(u => {
-    const active = u.warns.filter(w => w.active !== false && !w.pardoned).length;
+    const active = u.warns.filter(w => w.active !== false).length;
     const sev    = active >= 4 ? 'sev-high' : 'sev-low';
     return `<div class="warn-card ${sev}">
       <div class="warn-card-hd" onclick="this.closest('.warn-card').classList.toggle('open')">
@@ -202,7 +204,7 @@ function renderList(container) {
       try {
         await apiFetch(`/warns/${id}`, { method: 'DELETE' });
         const w = _warns.find(x => String(x.id) === String(id));
-        if (w) { w.active = false; w.pardoned = true; }
+        if (w) { w.active = false; }
         renderList(container);
       } catch {
         btn.textContent = 'Pardon'; btn.disabled = false;
@@ -212,11 +214,11 @@ function renderList(container) {
 }
 
 function entryHTML(w) {
-  const pardoned = w.active === false || w.pardoned;
+  const pardoned = w.active === false;
   return `<div class="warn-entry">
     <div class="we-body">
       <div class="we-reason">${esc(w.reason || 'No reason')}</div>
-      <div class="we-meta">ID: ${w.id} · by ${esc(w.mod_name || w.by || '?')} · ${fmtDate(w.created_at)}</div>
+      <div class="we-meta">ID: ${w.id} · by ${esc(w.actor_username || '?')} · ${fmtDate(w.timestamp)}</div>
     </div>
     <div class="we-actions">
       ${pardoned
@@ -347,7 +349,7 @@ function attachAddWarnModal(container) {
         // Refresh the warns list to show the new one
         try {
           const data = await apiFetch('/warns');
-          _warns = Array.isArray(data) ? data : (data?.warns ?? []);
+          _warns = Array.isArray(data) ? data : (data?.results ?? data?.warns ?? []);
           renderList(document);
         } catch {}
       }, 1500);

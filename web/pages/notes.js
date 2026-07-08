@@ -19,6 +19,7 @@ function injectStyles() {
     .note-card.removing { opacity: 0; transform: translateY(-4px); transition: opacity 180ms, transform 180ms; }
     .note-hd { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
     .note-uname { font-size: 14px; font-weight: 600; flex: 1; }
+    .note-uid { font-size: 11px; color: var(--muted); font-family: var(--font-mono); margin-top: 2px; }
     .note-meta { font-size: 11px; color: var(--muted); text-align: right; font-family: var(--font-mono); line-height: 1.7; flex-shrink: 0; }
     .note-body { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 10px; white-space: pre-wrap; }
     .note-edit-ta {
@@ -140,7 +141,7 @@ function renderNotes(container) {
   if (!list) return;
 
   const filtered = _search
-    ? _notes.filter(n => (n.username || n.user_name || '').toLowerCase().includes(_search.toLowerCase()))
+    ? _notes.filter(n => (n.target_username || '').toLowerCase().includes(_search.toLowerCase()))
     : _notes;
 
   if (count) count.textContent = `${filtered.length} notes`;
@@ -156,14 +157,19 @@ function renderNotes(container) {
 }
 
 function noteCardHTML(n) {
-  const id = n.id ?? n.note_id;
+  const id = n.note_id ?? n.id;
+  const uname = n.target_username || `User ${n.target_id}`;
+  const author = n.author_username || `User ${n.author_id}`;
   return `<div class="note-card" data-id="${esc(String(id))}">
     <div class="note-hd">
-      <div class="note-uname">${esc(n.username || n.user_name || `User ${n.user_id || n.target_id}`)}</div>
-      <div class="note-meta">#${id}<br>${esc(n.author || n.mod_name || '?')} · ${fmtDate(n.created_at)}</div>
+      <div>
+        <div class="note-uname">${esc(uname)}</div>
+        <div class="note-uid">${esc(n.target_id || '')}</div>
+      </div>
+      <div class="note-meta">#${id}<br>${esc(author)} · ${fmtDate(n.created_at)}</div>
     </div>
-    <div class="note-body" data-role="body">${esc(n.content || n.note || '')}</div>
-    <textarea class="note-edit-ta" data-role="editor" style="display:none">${esc(n.content || n.note || '')}</textarea>
+    <div class="note-body" data-role="body">${esc(n.content || '')}</div>
+    <textarea class="note-edit-ta" data-role="editor" style="display:none">${esc(n.content || '')}</textarea>
     <div class="note-foot">
       <div data-role="view-actions">
         <button class="btn btn-ghost btn-sm edit-btn" data-id="${id}">Edit</button>
