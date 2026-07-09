@@ -1,5 +1,5 @@
 /* ============================================================
-   ModSuite — GitHub Pages site
+   ModSuite -- GitHub Pages site
    Design: control-room / operations console
    Palette: deep steel + cream + amber indicator + coral warn
    ============================================================ */
@@ -51,7 +51,7 @@ button { background: none; border: none; font: inherit; color: inherit; cursor: 
 ul { list-style: none; }
 code, pre { font-family: var(--font-mono); }
 
-/* Ambient noise texture on the body — very subtle */
+/* Ambient noise texture on the body -- very subtle */
 body::before {
   content: "";
   position: fixed;
@@ -445,6 +445,21 @@ body > * { position: relative; z-index: 1; }
 
 /* ============ FEATURES ============ */
 .features { border-top: 1px solid var(--border); }
+
+/* Pipeline numbered steps */
+.pipeline-grid .pipeline-step .feature-num {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-right: 12px;
+}
+.pipeline-grid .pipeline-step p {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  margin-top: 8px;
+}
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

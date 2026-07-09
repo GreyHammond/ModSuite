@@ -3,10 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ModSuite — Discord community & moderation platform</title>
-  <meta name="description" content="ModSuite is a self-hosted, all-in-one Discord bot with ModMail, moderation, AutoMod, raid response, and a web dashboard. Built by Hammond Digital Studios.">
+  <title>ModSuite v3.0 -- Discord community & moderation platform</title>
+  <meta name="description" content="ModSuite is a self-hosted, all-in-one Discord bot with a violation engine, 8-filter automod pipeline, severity profiles, role persistence, and a web dashboard. Built by Hammond Digital Studios.">
 
-  <!-- Preconnect for fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -19,16 +18,17 @@
 <header class="topbar">
   <div class="topbar-inner">
     <a href="#top" class="brand">
-      <span class="brand-mark">◆</span>
+      <span class="brand-mark">&#9670;</span>
       <span class="brand-name">ModSuite</span>
-      <span class="brand-version">v2.2</span>
+      <span class="brand-version">v3.0</span>
     </a>
     <nav class="topbar-nav">
       <a href="#features">Features</a>
+      <a href="#pipeline">Pipeline</a>
       <a href="#setup">Setup</a>
       <a href="#commands">Commands</a>
       <a href="#changelog">Changelog</a>
-      <a href="https://github.com/GreyHammond/modsuite" class="topbar-cta">GitHub ↗</a>
+      <a href="https://github.com/GreyHammond/ModSuite" class="topbar-cta">GitHub &#8599;</a>
     </nav>
   </div>
 </header>
@@ -39,43 +39,42 @@
     <div class="hero-content">
       <div class="hero-eyebrow">
         <span class="dot"></span>
-        Hammond Digital Studios · Community Ops
+        Hammond Digital Studios -- Community Ops
       </div>
       <h1 class="hero-title">
         A control room<br>
         for your Discord.
       </h1>
       <p class="hero-lede">
-        ModSuite is a self-hosted Python bot, FastAPI backend, and web dashboard —
-        one system for onboarding, ModMail, moderation, AutoMod, and raid response.
-        Configure it once. Manage it from Discord or the browser. Own your data.
+        ModSuite is a self-hosted Python bot, FastAPI backend, and web dashboard --
+        one system for onboarding, ModMail, moderation, AutoMod, raid response,
+        severity profiles, and content filtering. Configure it once. Manage it
+        from Discord or the browser. Own your data.
       </p>
       <div class="hero-actions">
         <a href="#setup" class="btn btn-primary">Get started</a>
-        <a href="https://github.com/GreyHammond/modsuite" class="btn btn-secondary">View source</a>
+        <a href="https://github.com/GreyHammond/ModSuite" class="btn btn-secondary">View source</a>
       </div>
       <ul class="hero-stats">
-        <li><span class="stat-num">20</span><span class="stat-label">cogs</span></li>
-        <li><span class="stat-num">60+</span><span class="stat-label">slash commands</span></li>
-        <li><span class="stat-num">0</span><span class="stat-label">frameworks required</span></li>
+        <li><span class="stat-num">25</span><span class="stat-label">cogs</span></li>
+        <li><span class="stat-num">116</span><span class="stat-label">slash commands</span></li>
+        <li><span class="stat-num">8</span><span class="stat-label">automod filters</span></li>
+        <li><span class="stat-num">39</span><span class="stat-label">api endpoints</span></li>
       </ul>
     </div>
 
-    <!-- Signature: live AutoMod activity console -->
     <div class="console" aria-hidden="true">
       <div class="console-chrome">
         <div class="console-dots">
           <span></span><span></span><span></span>
         </div>
-        <div class="console-title">MOD-LOG · #mod-log · live</div>
+        <div class="console-title">VIOLATION ENGINE -- #mod-log -- live</div>
         <div class="console-status">
           <span class="pulse"></span>
           armed
         </div>
       </div>
-      <div class="console-body" id="console-log">
-        <!-- populated by script.js -->
-      </div>
+      <div class="console-body" id="console-log"></div>
     </div>
   </div>
 </section>
@@ -84,24 +83,83 @@
 <section class="hero-cards">
   <div class="section-inner">
     <div class="card">
-      <div class="card-icon">🛡️</div>
-      <h3>AutoMod</h3>
-      <p>Spam velocity, duplicate detection, link whitelisting, and invite blocking — all in one filter chain that never double-punishes.</p>
+      <div class="card-icon">&#128302;</div>
+      <h3>Violation Engine</h3>
+      <p>Every automod trigger feeds named violations into a central counter. Hit the threshold and the user is jailed automatically. No manual intervention.</p>
     </div>
     <div class="card">
-      <div class="card-icon">📬</div>
+      <div class="card-icon">&#128736;</div>
+      <h3>8-Filter Pipeline</h3>
+      <p>Invites, links, phishing, word lists, message length, all-caps, slowmode, and spam -- in order, first match wins, all feed violations.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">&#127899;</div>
+      <h3>Severity Profiles</h3>
+      <p>Switch between normal, strict, and raid modes instantly. The raid profile auto-activates during lockdown and restores when it lifts.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">&#128232;</div>
       <h3>ModMail</h3>
       <p>DMs become private staff channels. Reply as yourself or as "Staff". Close a ticket and it archives itself, zipped and dated.</p>
     </div>
     <div class="card">
-      <div class="card-icon">🚨</div>
+      <div class="card-icon">&#128680;</div>
       <h3>Raid Response</h3>
-      <p>Detect a join flood, lock the server, raise verification, block new joiners, unlock after the cooldown. Restore everything on the way out.</p>
+      <p>Detect a join flood, lock the server, raise verification, ban new joiners, switch to raid profile, auto-unlock and restore everything.</p>
     </div>
     <div class="card">
-      <div class="card-icon">🖥️</div>
+      <div class="card-icon">&#128421;</div>
       <h3>Web Dashboard</h3>
-      <p>Vanilla-JS SPA reading a FastAPI backend on loopback. No build step. No framework tax. Own the whole stack.</p>
+      <p>Vanilla-JS SPA on a FastAPI backend. 39 endpoints, 13-row AutoMod status card, 19 activity feed types. No build step. No framework tax.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PIPELINE ============ -->
+<section id="pipeline" class="features">
+  <div class="section-inner">
+    <div class="section-header">
+      <div class="section-eyebrow">01 -- The engine</div>
+      <h2>Every message passes through eight filters.</h2>
+      <p class="section-lede">
+        First match stops the chain. All feed violations. Violations escalate to jail.
+        Raids escalate to ban. The violation engine is the foundation -- everything plugs into it.
+      </p>
+    </div>
+
+    <div class="feature-grid pipeline-grid">
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">01</span><h3>Invite filter</h3></header>
+        <p>Blocks Discord invite links. Toggle with <code>/automod invites</code>.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">02</span><h3>Link filter</h3></header>
+        <p>Domain whitelist/blacklist with subdomain matching and per-role/channel bypass.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">03</span><h3>Anti-phishing</h3></header>
+        <p>Every URL checked against a live phishing database in real time. Fails open on timeout.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">04</span><h3>Word lists</h3></header>
+        <p>Named deny lists. Whole-word for singles, substring for phrases. <code>/wordlist</code> group.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">05</span><h3>Message length</h3></header>
+        <p>Min and max character thresholds. Empty messages (attachments only) skip min check.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">06</span><h3>All-caps filter</h3></header>
+        <p>Configurable percentage threshold (default 70%). Ignores short messages.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">07</span><h3>Slowmode</h3></header>
+        <p>Bot-enforced per-channel rate limit. Independent of Discord's built-in slowmode.</p>
+      </article>
+      <article class="feature pipeline-step">
+        <header><span class="feature-num">08</span><h3>Spam detection</h3></header>
+        <p>Message velocity, duplicate detection, mass mentions, emoji floods.</p>
+      </article>
     </div>
   </div>
 </section>
@@ -110,104 +168,132 @@
 <section id="features" class="features">
   <div class="section-inner">
     <div class="section-header">
-      <div class="section-eyebrow">01 · Capabilities</div>
-      <h2>Everything your mod team already needs, together.</h2>
+      <div class="section-eyebrow">02 -- Capabilities</div>
+      <h2>Everything your mod team needs, together.</h2>
       <p class="section-lede">
-        ModSuite replaces the usual bot stack — Carl-bot, Wick, MEE6, Dyno —
+        ModSuite replaces the usual bot stack -- Carl-bot, Wick, MEE6, Dyno --
         with one process you host, one database you back up, one dashboard you open.
       </p>
     </div>
 
     <div class="feature-grid">
       <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Onboarding &amp; Roles</h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Violation Engine <span class="badge-new">v2.6</span></h3></header>
         <ul>
-          <li>Guided <code>/setup</code> wizard — one command, whole server configured</li>
-          <li>14 default color self-roles with reaction assignment</li>
-          <li>Custom react-role menus with <code>/createreactmessage</code></li>
-          <li>Auto-role on join, verify gate, welcome messages</li>
+          <li>Central escalation pipeline -- all automod triggers feed named violations</li>
+          <li>Configurable threshold + sliding time window per guild</li>
+          <li>Auto-jail at threshold. 30-day retention with cleanup loop</li>
+          <li><code>/violations check</code>, <code>clear</code>, <code>threshold</code>, <code>duration</code></li>
         </ul>
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">▸</span><h3>ModMail</h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Severity Profiles <span class="badge-new">v2.9</span></h3></header>
+        <ul>
+          <li>Three built-in: <strong>normal</strong>, <strong>strict</strong>, <strong>raid</strong></li>
+          <li>Custom profiles via <code>/profile create</code></li>
+          <li>Instant switching -- no restart needed</li>
+          <li>Raid profile auto-activates on lockdown, restores on unlock</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Role Persistence <span class="badge-new">v2.6</span></h3></header>
+        <ul>
+          <li>Roles saved on leave, restored on rejoin (kicks, leaves, softbans)</li>
+          <li>Banned users get a fresh start -- no role restore after unban</li>
+          <li>Ban detection via mod_logs history</li>
+          <li>Configurable toggle in <code>/setup</code></li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Name Filter <span class="badge-new">v3.0</span></h3></header>
+        <ul>
+          <li>Checks display names on join and nickname change</li>
+          <li>Unicode confusable normalization (Cyrillic, l33tspeak, fullwidth)</li>
+          <li>Actions: log, kick, or ban</li>
+          <li><code>/namefilter</code> command group (6 subcommands)</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Verification Gate <span class="badge-new">v3.0</span></h3></header>
+        <ul>
+          <li>React-to-verify: new members gain a role by reacting</li>
+          <li>Configurable role, channel, and emoji</li>
+          <li><code>/verifygate post</code> creates the verification message</li>
+          <li>One click for members, zero effort for staff</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Moderation</h3></header>
+        <ul>
+          <li><code>/kick</code>, <code>/ban</code>, <code>/tempban</code>, <code>/softban</code>, <code>/mute</code></li>
+          <li>Warning system with auto-jail / auto-ban thresholds</li>
+          <li><code>/jail</code> strips roles, restores on release</li>
+          <li>Advanced <code>/purge</code> with user/contains/age/bot filters</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>ModMail</h3></header>
         <ul>
           <li>DMs open a private ticket channel automatically</li>
-          <li>Reply as staff or as anonymous "Staff"</li>
-          <li>Close builds a full transcript ZIP, archived by date</li>
+          <li>Reply as staff or anonymous. Close builds transcript ZIP</li>
+          <li>Reply and close from the web dashboard too</li>
           <li>Persistent Reply / Close buttons on every ticket</li>
         </ul>
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Moderation</h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Raid Response</h3></header>
         <ul>
-          <li><code>/kick</code>, <code>/ban</code>, <code>/softban</code>, <code>/mute</code> with flexible durations</li>
-          <li>Warning system with auto-mute / auto-ban thresholds</li>
-          <li><code>/jail</code> strips roles, restores on release</li>
-          <li>Full <code>#mod-log</code> audit trail on every action</li>
-        </ul>
-      </article>
-
-      <article class="feature">
-        <header><span class="feature-num">▸</span><h3>AutoMod <span class="badge-new">v2.2</span></h3></header>
-        <ul>
-          <li>Message velocity, duplicate, mention, and emoji spam limits</li>
-          <li>Link whitelist or blacklist, with role &amp; channel bypass</li>
-          <li>Discord invite filter as a separate toggle</li>
-          <li>Filter chain ordering prevents double-punishment</li>
-          <li>Immune roles for trusted members</li>
-        </ul>
-      </article>
-
-      <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Raid Response <span class="badge-new">v2.2</span></h3></header>
-        <ul>
-          <li>Join velocity auto-triggers full lockdown</li>
+          <li>Join velocity auto-triggers full lockdown + raid profile</li>
           <li>Verification level auto-raised, restored on unlock</li>
-          <li>Active-raid joiners auto-kicked or banned</li>
-          <li>Auto-unlock cooldown (default 5 min)</li>
-          <li>Account age gate flags suspicious joins</li>
+          <li>Active-raid joiners auto-banned (default, configurable to kick)</li>
+          <li>Raid bans logged to mod_logs for role persistence</li>
         </ul>
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Forum Threads <span class="badge-new">v2.1</span></h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Web Dashboard</h3></header>
         <ul>
-          <li><code>/delete</code> lets thread OPs delete their own posts</li>
-          <li>Two-step confirmation with permanent-warning</li>
-          <li>Logged to <code>#mod-log</code> with user, thread name, timestamp</li>
-          <li>Closes a real gap in Discord's default permissions</li>
+          <li>13-row AutoMod status card, 19 activity feed types</li>
+          <li>Warns, notes, tickets, mod-logs -- all with inline editing</li>
+          <li>Configuration editor for 120+ settings</li>
+          <li>39 API endpoints, Swagger at <code>/docs</code></li>
         </ul>
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Notes &amp; History</h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Setup Hub</h3></header>
         <ul>
-          <li>Private staff notes never visible to the subject</li>
-          <li><code>/history</code> — unified moderation timeline per user</li>
-          <li>User-submitted content reports</li>
-          <li>Soft-delete on notes so nothing is lost</li>
+          <li>15 buttons across 5 rows, 13 configuration panels</li>
+          <li>Every setting reachable from menus -- no CLI needed</li>
+          <li>Violations, Content Filters, Profiles, Name Filter, Verify Gate</li>
+          <li>One-click install creates all roles, channels, and categories</li>
         </ul>
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Community</h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Notes, History &amp; Reports</h3></header>
+        <ul>
+          <li>Private staff notes, user-submitted reports</li>
+          <li><code>/history</code> -- 16 action types with icons</li>
+          <li>Unified per-user moderation timeline</li>
+          <li>CSV export from the dashboard</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Community</h3></header>
         <ul>
           <li>Multi-emoji starboard with configurable threshold</li>
-          <li>Streamer tracking with go-live alerts</li>
+          <li>Streamer tracking with go-live alerts (Twitch)</li>
           <li>Personal reminders with timezone support</li>
-          <li>Persistent mod panel + ephemeral <code>/mod</code> menu</li>
-        </ul>
-      </article>
-
-      <article class="feature">
-        <header><span class="feature-num">▸</span><h3>Web Dashboard</h3></header>
-        <ul>
-          <li>Vanilla JS SPA — no build step, no framework</li>
-          <li>Dashboard, tickets, warns, notes, mod-logs, config</li>
-          <li>FastAPI backend on <code>127.0.0.1:8000</code></li>
-          <li>Action queue polling — 5s from click to Discord</li>
+          <li>React-role menus, honeypot channels, forum thread deletion</li>
         </ul>
       </article>
     </div>
@@ -218,7 +304,7 @@
 <section id="setup" class="setup">
   <div class="section-inner">
     <div class="section-header">
-      <div class="section-eyebrow">02 · Getting started</div>
+      <div class="section-eyebrow">03 -- Getting started</div>
       <h2>Six steps to a running server.</h2>
       <p class="section-lede">
         Python 3.11+, a Discord bot token, and a few minutes. That's the shopping list.
@@ -230,56 +316,50 @@
         <div class="step-num">01</div>
         <div class="step-body">
           <h3>Create a Discord application</h3>
-          <p>Go to the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>, create a new application, and add a bot. Copy the token — you'll need it in step 4.</p>
-          <p>Under <strong>Bot → Privileged Gateway Intents</strong>, enable <strong>Server Members Intent</strong> and <strong>Message Content Intent</strong>.</p>
+          <p>Go to the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>, create a new application, and add a bot. Copy the token.</p>
+          <p>Under <strong>Bot > Privileged Gateway Intents</strong>, enable <strong>Server Members Intent</strong> and <strong>Message Content Intent</strong>.</p>
         </div>
       </li>
-
       <li class="step">
         <div class="step-num">02</div>
         <div class="step-body">
           <h3>Clone &amp; install</h3>
-          <pre class="code" data-copy><code>git clone https://github.com/GreyHammond/modsuite.git
-cd modsuite/modsuite_v2
+          <pre class="code" data-copy><code>git clone https://github.com/GreyHammond/ModSuite.git
+cd ModSuite
 python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+source venv/bin/activate
 pip install -r requirements.txt</code></pre>
         </div>
       </li>
-
       <li class="step">
         <div class="step-num">03</div>
         <div class="step-body">
-          <h3>Configure your token</h3>
+          <h3>Configure environment</h3>
           <pre class="code" data-copy><code>cp .env.example .env
-# Edit .env and paste your bot token:
-# DISCORD_TOKEN=your_token_here</code></pre>
+# Edit .env -- at minimum set DISCORD_TOKEN
+# Optional: CORS_ORIGINS, API_HOST, API_PORT, Twitch keys, OAuth2</code></pre>
         </div>
       </li>
-
       <li class="step">
         <div class="step-num">04</div>
         <div class="step-body">
           <h3>Invite the bot with Administrator</h3>
-          <p>ModSuite creates roles, categories, and channels during <code>/setup</code>, so it needs <strong>Administrator</strong> on the target server. Generate the invite from the Developer Portal → OAuth2 → URL Generator.</p>
+          <p>ModSuite creates roles, categories, and channels during <code>/setup</code>, so it needs <strong>Administrator</strong>. Generate the invite from Developer Portal > OAuth2 > URL Generator.</p>
         </div>
       </li>
-
       <li class="step">
         <div class="step-num">05</div>
         <div class="step-body">
           <h3>Run the bot</h3>
           <pre class="code" data-copy><code>python bot.py</code></pre>
-          <p>This also starts the FastAPI backend on <code>127.0.0.1:8000</code> and serves the web dashboard.</p>
+          <p>The API starts automatically. Database auto-creates and auto-migrates on every startup.</p>
         </div>
       </li>
-
       <li class="step">
         <div class="step-num">06</div>
         <div class="step-body">
           <h3>Run <code>/setup</code> in your server</h3>
-          <p>As a server admin, run <code>/setup</code>. Customise the messages if you like, then click <strong>Run Setup</strong>. ModSuite creates the color roles, Owner and Moderator roles, the ModMail category with <code>#modmail</code> / <code>#mod-log</code> / <code>#closed-tickets</code>, <code>#self-roles</code> with its react message, and the Jail category — then grants you the Owner role.</p>
-          <p>Finish by running <code>/automod status</code> to review AutoMod defaults.</p>
+          <p>As a server admin, run <code>/setup</code>. Click <strong>Run Setup</strong> -- creates all default roles, channels, categories, and react-role messages. Then explore the 13 configuration panels to dial in your preferences.</p>
         </div>
       </li>
     </ol>
@@ -290,11 +370,10 @@ pip install -r requirements.txt</code></pre>
 <section id="commands" class="commands">
   <div class="section-inner">
     <div class="section-header">
-      <div class="section-eyebrow">03 · Command reference</div>
+      <div class="section-eyebrow">04 -- Command reference</div>
       <h2>Every slash command in ModSuite.</h2>
       <p class="section-lede">
-        Search or filter by category. Everything defers to the config in the database —
-        no code changes to rebalance thresholds.
+        Search or filter by category. <span id="cmd-count">116 commands</span> across 21 categories.
       </p>
     </div>
 
@@ -307,8 +386,14 @@ pip install -r requirements.txt</code></pre>
         <button class="chip" data-cat="moderation">Moderation</button>
         <button class="chip" data-cat="warns">Warns</button>
         <button class="chip" data-cat="jail">Jail</button>
+        <button class="chip" data-cat="violations">Violations</button>
         <button class="chip" data-cat="automod">AutoMod</button>
+        <button class="chip" data-cat="wordlist">Word Lists</button>
+        <button class="chip" data-cat="profiles">Profiles</button>
+        <button class="chip" data-cat="namefilter">Name Filter</button>
+        <button class="chip" data-cat="verifygate">Verify Gate</button>
         <button class="chip" data-cat="raid">Raid</button>
+        <button class="chip" data-cat="honeypot">Honeypot</button>
         <button class="chip" data-cat="notes">Notes</button>
         <button class="chip" data-cat="reactrole">React Roles</button>
         <button class="chip" data-cat="starboard">Starboard</button>
@@ -320,9 +405,7 @@ pip install -r requirements.txt</code></pre>
       </div>
     </div>
 
-    <div class="commands-list" id="commands-list">
-      <!-- populated by script.js -->
-    </div>
+    <div class="commands-list" id="commands-list"></div>
     <p class="commands-empty" id="commands-empty" hidden>No commands match that search.</p>
   </div>
 </section>
@@ -331,82 +414,126 @@ pip install -r requirements.txt</code></pre>
 <section id="changelog" class="changelog">
   <div class="section-inner">
     <div class="section-header">
-      <div class="section-eyebrow">04 · Release history</div>
+      <div class="section-eyebrow">05 -- Release history</div>
       <h2>Changelog.</h2>
     </div>
 
     <div class="release">
       <div class="release-header">
-        <h3>v2.2.0</h3>
-        <span class="release-date">2026-07-06</span>
-        <span class="release-tag tag-major">Major</span>
+        <h3>v3.0.0</h3>
+        <span class="release-date">2026-07-08</span>
+        <span class="release-tag tag-major">Phase 4</span>
       </div>
       <div class="release-body">
-        <h4>Added — AutoMod</h4>
+        <h4>Name filtering, verification gate, all-caps filter</h4>
         <ul>
-          <li><strong>Spam detection</strong> with message velocity, duplicate, mention, and emoji limits. Default action: delete + 10-minute timeout.</li>
-          <li><strong>Link filtering</strong> with whitelist/blacklist modes and per-role/channel bypass. Preset lists included.</li>
-          <li><strong>Discord invite filter</strong> as a separate toggle.</li>
-          <li><strong>Immune roles</strong> for trusted members.</li>
-          <li>Filter chain: invites → links → spam. First match wins.</li>
-          <li>New <code>/automod</code> command group with 14 subcommands and a <code>status</code> dashboard.</li>
-        </ul>
-        <h4>Added — Raid Response upgrades</h4>
-        <ul>
-          <li>Active-raid auto-block for new joiners (kick or ban).</li>
-          <li>Auto-verification level bump during lockdown, restored on unlock.</li>
-          <li>Auto-unlock cooldown (default 5 min; 0 for manual-only).</li>
-          <li>Account age gate flags suspicious young accounts.</li>
-          <li>New <code>/raidcfg</code> command group.</li>
-        </ul>
-        <h4>Database</h4>
-        <ul>
-          <li>22 new columns for AutoMod + raid config. Auto-migrated on next startup.</li>
+          <li><strong>Username/nickname filtering</strong> with Unicode confusable normalization (Cyrillic, l33tspeak, fullwidth). Actions: log, kick, ban. 6 slash commands.</li>
+          <li><strong>Verification gate</strong> -- react-to-verify for new members. Configurable role, channel, emoji. 5 slash commands.</li>
+          <li><strong>All-caps filter</strong> -- percentage threshold with configurable min length. Feeds violations.</li>
+          <li>2 new setup panels (Name Filter, Verify Gate). 15 hub buttons across 5 rows.</li>
+          <li>Dashboard AutoMod card now shows 13 status rows.</li>
         </ul>
       </div>
     </div>
 
     <div class="release">
       <div class="release-header">
-        <h3>v2.1.0</h3>
-        <span class="release-date">2026-07-05</span>
-        <span class="release-tag tag-minor">Minor</span>
+        <h3>v2.9.0</h3>
+        <span class="release-date">2026-07-08</span>
+        <span class="release-tag tag-major">Phase 3</span>
       </div>
       <div class="release-body">
-        <h4>Added — Forum Thread Deletion</h4>
+        <h4>Severity profiles</h4>
         <ul>
-          <li>New <code>/delete</code> command lets forum-thread owners delete their own threads.</li>
-          <li>Two-step confirmation flow with permanent-warning modal.</li>
-          <li>Deletion logged to <code>#mod-log</code> with user, thread name, and timestamp.</li>
-          <li>Ownership enforced via <code>thread.owner_id</code>; buttons scoped to the invoker only.</li>
-        </ul>
-        <h4>Changed</h4>
-        <ul>
-          <li>Rebranded from "CommunityBot" to <strong>ModSuite</strong> in documentation and setup wizard.</li>
-          <li>README overhauled to document all 19 cogs, the API, and the web dashboard.</li>
+          <li>Three built-in profiles: <strong>normal</strong>, <strong>strict</strong>, <strong>raid</strong>. Custom profiles via <code>/profile create</code>.</li>
+          <li>Instant switching via <code>/profile switch</code>, <code>/setup</code>, or API.</li>
+          <li>Raid auto-activates "raid" profile on lockdown, restores on unlock.</li>
+          <li>Profile overrides merged at config read time -- no restart needed.</li>
         </ul>
       </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <h3>v2.8.0</h3>
+        <span class="release-date">2026-07-08</span>
+        <span class="release-tag tag-minor">Phase 2</span>
+      </div>
+      <div class="release-body">
+        <h4>Staff utility</h4>
+        <ul>
+          <li><strong>Timed bans</strong>: <code>/tempban</code> with auto-unban loop. TempBan button in mod panel.</li>
+          <li><strong>Advanced purge</strong>: user, contains, bots_only, max_age filters. Up to 200 messages.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <h3>v2.7.0</h3>
+        <span class="release-date">2026-07-08</span>
+        <span class="release-tag tag-minor">Phase 1</span>
+      </div>
+      <div class="release-body">
+        <h4>Content pipeline</h4>
+        <ul>
+          <li><strong>Anti-phishing</strong>: SinkingYachts API, real-time URL scanning, fails open.</li>
+          <li><strong>Message length filter</strong>: min/max character thresholds.</li>
+          <li><strong>Per-channel slowmode</strong>: bot-enforced rate limiting independent of Discord.</li>
+          <li>New Content Filters panel in <code>/setup</code>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <h3>v2.6.0</h3>
+        <span class="release-date">2026-07-08</span>
+        <span class="release-tag tag-major">Phase 0</span>
+      </div>
+      <div class="release-body">
+        <h4>Foundation -- violation engine, role persistence, word lists</h4>
+        <ul>
+          <li><strong>Violation counter engine</strong>: central escalation pipeline. All automod triggers rewired to feed violations.</li>
+          <li><strong>Word list filtering</strong>: named deny lists with whole-word and phrase matching.</li>
+          <li><strong>Role persistence</strong>: save on leave, restore on rejoin. Bans = fresh start.</li>
+          <li><strong>Timed bans</strong> and <strong>advanced purge</strong> (documented in v2.8).</li>
+          <li>Raid default changed from kick to ban. Raid bans logged to mod_logs.</li>
+          <li>5 new database tables, 29 new config columns.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <h3>v2.5.0</h3>
+        <span class="release-date">2026-07-08</span>
+        <span class="release-tag tag-major">Major</span>
+      </div>
+      <div class="release-body">
+        <h4>Dashboard becomes fully operational</h4>
+        <ul>
+          <li>13 new API endpoints. Dashboard, warns, notes, tickets, mod-logs, configuration pages all rewritten.</li>
+          <li>Add warns, reply to tickets, close tickets from the web. CSV export on mod-logs.</li>
+          <li>Bot health card, 30-day warns trend chart, top offenders, AutoMod status tile.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <h3>v2.2.0</h3>
+        <span class="release-date">2026-07-05</span>
+      </div>
+      <div class="release-body"><p>AutoMod system (spam, links, invites, immune roles). Raid detection and lockdown. Honeypot channels.</p></div>
     </div>
 
     <div class="release">
       <div class="release-header">
         <h3>v2.0.0</h3>
         <span class="release-date">2026-06</span>
-        <span class="release-tag tag-major">Major</span>
       </div>
-      <div class="release-body">
-        <h4>Added — Web Stack</h4>
-        <ul>
-          <li>FastAPI REST API running in-process on <code>127.0.0.1:8000</code>.</li>
-          <li>Vanilla-JS SPA dashboard — no build step, no framework.</li>
-          <li>Bot actions queue: web UI queues Discord actions, bot polls every 5s and executes.</li>
-          <li>Presence persistence across restarts.</li>
-        </ul>
-        <h4>Added — New Cogs</h4>
-        <ul>
-          <li><code>starboard</code>, <code>streamer</code>, <code>verify</code>, <code>remindme</code>, <code>reactmessage</code>, <code>move</code>, <code>reports</code>.</li>
-        </ul>
-      </div>
+      <div class="release-body"><p>Web dashboard with REST API. Starboard, streamer alerts, react-role messages, reminders, forum threads.</p></div>
     </div>
 
     <div class="release">
@@ -414,9 +541,7 @@ pip install -r requirements.txt</code></pre>
         <h3>v1.9.0</h3>
         <span class="release-date">Baseline</span>
       </div>
-      <div class="release-body">
-        <p>Core cogs: setup, selfroles, modmail, moderation, warns, jail, userinfo, raid, panel, notes, admin, messages. Slash-command moderation, ModMail ticketing, basic raid detection, 14 color self-roles, SQLite persistence with auto-migrating schema.</p>
-      </div>
+      <div class="release-body"><p>Core cogs: setup, selfroles, modmail, moderation, warns, jail, userinfo, raid, panel, notes, admin, messages.</p></div>
     </div>
   </div>
 </section>
@@ -426,7 +551,7 @@ pip install -r requirements.txt</code></pre>
   <div class="section-inner footer-inner">
     <div>
       <div class="brand">
-        <span class="brand-mark">◆</span>
+        <span class="brand-mark">&#9670;</span>
         <span class="brand-name">ModSuite</span>
       </div>
       <p class="footer-tagline">
@@ -435,14 +560,14 @@ pip install -r requirements.txt</code></pre>
       </p>
     </div>
     <div class="footer-links">
-      <a href="https://github.com/GreyHammond/modsuite">Repository</a>
-      <a href="https://github.com/GreyHammond/modsuite/issues">Issues</a>
+      <a href="https://github.com/GreyHammond/ModSuite">Repository</a>
+      <a href="https://github.com/GreyHammond/ModSuite/issues">Issues</a>
       <a href="#changelog">Changelog</a>
-      <a href="https://github.com/GreyHammond">GreyHammond ↗</a>
+      <a href="https://github.com/GreyHammond">GreyHammond &#8599;</a>
     </div>
   </div>
   <div class="footer-bottom">
-    <span>© Hammond Digital Studios · ModSuite v2.2</span>
+    <span>&copy; Hammond Digital Studios -- ModSuite v3.0</span>
   </div>
 </footer>
 
