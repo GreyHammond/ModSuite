@@ -47,7 +47,7 @@ class DeleteThreadView(discord.ui.View):
             )
             return
 
-        # Stage 2 — actually delete
+        # Stage 2 -- actually delete
         self.stop()
         thread_name = self.thread.name
         deleted_by  = self.invoker

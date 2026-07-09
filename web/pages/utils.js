@@ -1,5 +1,5 @@
 // ============================================================
-//  ModSuite v2.0 — Page Utilities
+//  ModSuite v2.0 -- Page Utilities
 // ============================================================
 
 /**
@@ -15,7 +15,7 @@ export function loading(msg = 'Loading…') {
 
 /**
  * Returns HTML string for an error state with optional retry.
- * retryFn: () => void  — called when Retry is clicked
+ * retryFn: () => void  -- called when Retry is clicked
  */
 export function errorState(msg, retryFn) {
   const id = `retry-${Math.random().toString(36).slice(2)}`;
@@ -47,7 +47,7 @@ export function emptyState(icon, msg) {
  * Human-readable relative time (e.g. "3 minutes ago").
  */
 export function timeAgo(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '--';
   const d    = new Date(dateStr);
   const diff = Date.now() - d.getTime();
   if (isNaN(diff)) return dateStr;

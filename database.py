@@ -12,7 +12,7 @@ def get_conn():
     return conn
 
 
-# ── Column definitions — add new columns here, migrations happen automatically ─
+# ── Column definitions -- add new columns here, migrations happen automatically ─
 # Format: (column_name, sqlite_type, default_value_or_None)
 GUILD_CONFIG_COLUMNS = [
     ("owner_role_id",       "INTEGER", None),
@@ -82,14 +82,50 @@ GUILD_CONFIG_COLUMNS = [
     ("invite_action",              "TEXT",    "'delete'"),
     # Raid protection upgrades
     ("raid_min_account_age_days",  "INTEGER", "0"),        # 0 = disabled
-    ("raid_active_action",         "TEXT",    "'kick'"),   # kick | ban new joiners during active raid
+    ("raid_active_action",         "TEXT",    "'ban'"),    # kick | ban new joiners during active raid (v3.0: default ban)
     ("raid_auto_verification",     "INTEGER", "1"),        # auto-raise verification level during raid
     ("raid_lockdown_cooldown_min", "INTEGER", "5"),        # 0 = no auto-unlock
     # ── v2.5 Honeypot ──
     ("honeypot_channels",          "TEXT",    "'[]'"),   # JSON list of channel IDs that auto-ban on post
+    # ── v3.0 Violation engine ──
+    ("violation_jail_threshold",   "INTEGER", "5"),      # violations in window before auto-jail
+    ("violation_window_minutes",   "INTEGER", "60"),     # sliding window for violation counting
+    ("violation_jail_duration",    "TEXT",    "'1d'"),   # duration of auto-jail from violations
+    # ── v3.0 Word list filtering ──
+    ("wordlist_enabled",           "INTEGER", "0"),
+    ("wordlist_action",            "TEXT",    "'delete'"),  # delete | mute | kick | ban
+    # ── v3.0 Role persistence ──
+    ("role_persist_enabled",       "INTEGER", "1"),      # save/restore roles on leave/rejoin
+    # ── v2.7 Anti-phishing ──
+    ("antiphish_enabled",          "INTEGER", "1"),      # check URLs against phishing databases
+    # ── v2.7 Message length filter ──
+    ("max_message_length",         "INTEGER", "0"),      # 0 = disabled; max chars before violation
+    ("min_message_length",         "INTEGER", "0"),      # 0 = disabled; min chars before violation
+    # ── v2.7 Per-channel slowmode ──
+    ("slowmode_enabled",           "INTEGER", "0"),
+    ("slowmode_seconds",           "INTEGER", "5"),      # per-user-per-channel: 1 msg every N seconds
+    ("slowmode_channels",          "TEXT",    "'[]'"),   # JSON list of channel IDs; empty = all channels
+    # ── v2.9 Severity profiles ──
+    ("active_profile",             "TEXT",    "'normal'"),  # name of the active automod profile
+    ("profile_before_raid",        "TEXT",    "''"),        # profile to restore after raid lockdown ends
+    # ── v3.0 Name filtering ──
+    ("name_filter_enabled",        "INTEGER", "0"),
+    ("name_filter_action",         "TEXT",    "'log'"),     # log | kick | ban
+    ("name_filter_words",          "TEXT",    "'[]'"),      # JSON list of blocked name patterns
+    ("name_filter_confusables",    "INTEGER", "1"),         # normalize Unicode confusable chars before checking
+    # ── v3.0 Verification gate ──
+    ("verify_gate_enabled",        "INTEGER", "0"),
+    ("verify_gate_role_id",        "INTEGER", None),        # role granted after verification
+    ("verify_gate_channel_id",     "INTEGER", None),        # channel where the verify message lives
+    ("verify_gate_message_id",     "INTEGER", None),        # the message to react to
+    ("verify_gate_emoji",          "TEXT",    "'\\u2705'"), # emoji to react with (default: check mark)
+    # ── v3.0 All-caps filter ──
+    ("allcaps_enabled",            "INTEGER", "0"),
+    ("allcaps_threshold",          "INTEGER", "70"),        # % of chars that are uppercase to trigger
+    ("allcaps_min_length",         "INTEGER", "10"),        # min message length to check (ignore short msgs)
 ]
 
-# ── Column definitions for the jail table — auto-migration ────────────────────
+# ── Column definitions for the jail table -- auto-migration ────────────────────
 JAIL_COLUMNS = [
     ("jail_end_time", "TEXT",    None),  # ISO 8601 UTC datetime; NULL = permanent jail
     ("active",        "INTEGER", "1"),   # 1 = currently jailed
@@ -116,7 +152,7 @@ def init_db():
                 else:
                     conn.execute(f"ALTER TABLE guild_config ADD COLUMN {col_name} {col_type}")
 
-        # Other tables — unchanged, safe to CREATE IF NOT EXISTS
+        # Other tables -- unchanged, safe to CREATE IF NOT EXISTS
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS modmail_tickets (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -330,16 +366,61 @@ def init_db():
                 label       TEXT NOT NULL,
                 url         TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS violations (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id    INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL,
+                name        TEXT    NOT NULL,
+                trigger     TEXT    NOT NULL DEFAULT '',
+                created_at  TEXT    NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_violations_guild_user ON violations (guild_id, user_id, name, created_at);
+
+            CREATE TABLE IF NOT EXISTS member_roles (
+                guild_id    TEXT NOT NULL,
+                user_id     TEXT NOT NULL,
+                saved_roles TEXT NOT NULL,
+                saved_at    TEXT NOT NULL,
+                PRIMARY KEY (guild_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS timed_bans (
+                guild_id    INTEGER NOT NULL,
+                user_id     INTEGER NOT NULL,
+                unban_at    TEXT    NOT NULL,
+                reason      TEXT    DEFAULT '',
+                banned_by   TEXT    DEFAULT '',
+                PRIMARY KEY (guild_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS word_lists (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id    TEXT    NOT NULL,
+                list_name   TEXT    NOT NULL,
+                words       TEXT    NOT NULL DEFAULT '[]',
+                UNIQUE(guild_id, list_name)
+            );
+
+            CREATE TABLE IF NOT EXISTS automod_profiles (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id    TEXT    NOT NULL,
+                name        TEXT    NOT NULL,
+                overrides   TEXT    NOT NULL DEFAULT '{}',
+                built_in    INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(guild_id, name)
+            );
         """)
 
-        # Migrate selfrole_roles — add toggle column if missing
+        # Migrate selfrole_roles -- add toggle column if missing
         existing_sr_cols = {
             row[1] for row in conn.execute("PRAGMA table_info(selfrole_roles)")
         }
         if "toggle" not in existing_sr_cols:
             conn.execute("ALTER TABLE selfrole_roles ADD COLUMN toggle INTEGER NOT NULL DEFAULT 0")
 
-        # Migrate jail table — add new columns without touching existing data
+        # Migrate jail table -- add new columns without touching existing data
         existing_jail_cols = {
             row[1] for row in conn.execute("PRAGMA table_info(jail)")
         }
@@ -687,7 +768,7 @@ def migrate_builtin_selfrole_categories(guild_id: int):
     """
     On startup: check whether the three built-in categories (Colors, DM Prefs,
     Pronouns) already exist in selfrole_categories for this guild.  If any are
-    missing, insert them — and their roles — from the data already stored in
+    missing, insert them -- and their roles -- from the data already stored in
     guild_config.  Does nothing when no config exists yet (fresh install before
     /setup has run).
 
@@ -1418,3 +1499,301 @@ def get_streamer_links(streamer_id: int) -> list[dict]:
             (streamer_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Violations (v3.0) ────────────────────────────────────────────────────────
+
+def add_violation(guild_id: int, user_id: int, name: str, trigger: str = "") -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO violations (guild_id, user_id, name, trigger, created_at) VALUES (?, ?, ?, ?, ?)",
+            (guild_id, user_id, name, trigger, datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_violation_count(guild_id: int, user_id: int, name: str = "",
+                        window_minutes: int = 60) -> int:
+    cutoff = (datetime.utcnow() - __import__("datetime").timedelta(minutes=window_minutes)).isoformat()
+    with get_conn() as conn:
+        if name:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM violations WHERE guild_id = ? AND user_id = ? AND name = ? AND created_at >= ?",
+                (guild_id, user_id, name, cutoff),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM violations WHERE guild_id = ? AND user_id = ? AND created_at >= ?",
+                (guild_id, user_id, cutoff),
+            ).fetchone()
+    return row["cnt"] if row else 0
+
+
+def get_all_violation_count(guild_id: int, user_id: int,
+                            window_minutes: int = 60) -> int:
+    """Count ALL violations for a user within the window, across all names."""
+    return get_violation_count(guild_id, user_id, name="", window_minutes=window_minutes)
+
+
+def get_recent_violations(guild_id: int, user_id: int, limit: int = 25) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM violations WHERE guild_id = ? AND user_id = ? ORDER BY id DESC LIMIT ?",
+            (guild_id, user_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_violations_summary(guild_id: int, limit: int = 10) -> list[dict]:
+    """Top offenders by violation count in the last 24h."""
+    cutoff = (datetime.utcnow() - __import__("datetime").timedelta(hours=24)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT user_id, COUNT(*) as cnt
+               FROM violations WHERE guild_id = ? AND created_at >= ?
+               GROUP BY user_id ORDER BY cnt DESC LIMIT ?""",
+            (guild_id, cutoff, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def cleanup_old_violations(days: int = 30) -> int:
+    cutoff = (datetime.utcnow() - __import__("datetime").timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM violations WHERE created_at < ?", (cutoff,))
+        return cur.rowcount
+
+
+# ── Member Roles (v3.0) ──────────────────────────────────────────────────────
+
+def save_member_roles(guild_id: str, user_id: str, role_ids: list[int]) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO member_roles (guild_id, user_id, saved_roles, saved_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                   saved_roles = excluded.saved_roles,
+                   saved_at = excluded.saved_at""",
+            (guild_id, user_id, json.dumps(role_ids), datetime.utcnow().isoformat()),
+        )
+
+
+def get_member_roles(guild_id: str, user_id: str) -> list[int] | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT saved_roles FROM member_roles WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row["saved_roles"])
+
+
+def clear_member_roles(guild_id: str, user_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM member_roles WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+
+
+# ── Timed Bans (v3.0) ────────────────────────────────────────────────────────
+
+def add_timed_ban(guild_id: int, user_id: int, unban_at: datetime,
+                  reason: str = "", banned_by: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO timed_bans (guild_id, user_id, unban_at, reason, banned_by) VALUES (?, ?, ?, ?, ?)",
+            (guild_id, user_id, unban_at.isoformat(), reason, banned_by),
+        )
+
+
+def get_expired_bans(now: datetime) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM timed_bans WHERE unban_at <= ?", (now.isoformat(),)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def remove_timed_ban(guild_id: int, user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM timed_bans WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
+
+
+def get_timed_ban(guild_id: int, user_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM timed_bans WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ── Word Lists (v3.0) ────────────────────────────────────────────────────────
+
+def create_word_list(guild_id: str, list_name: str, words: list[str] | None = None) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO word_lists (guild_id, list_name, words) VALUES (?, ?, ?)",
+            (guild_id, list_name, json.dumps(words or [])),
+        )
+        return cur.lastrowid
+
+
+def get_word_list(guild_id: str, list_name: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM word_lists WHERE guild_id = ? AND list_name = ?",
+            (guild_id, list_name),
+        ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    d["words"] = json.loads(d["words"])
+    return d
+
+
+def get_all_word_lists(guild_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM word_lists WHERE guild_id = ? ORDER BY list_name",
+            (guild_id,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["words"] = json.loads(d["words"])
+        result.append(d)
+    return result
+
+
+def update_word_list(guild_id: str, list_name: str, words: list[str]) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE word_lists SET words = ? WHERE guild_id = ? AND list_name = ?",
+            (json.dumps(words), guild_id, list_name),
+        )
+        return cur.rowcount > 0
+
+
+def delete_word_list(guild_id: str, list_name: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM word_lists WHERE guild_id = ? AND list_name = ?",
+            (guild_id, list_name),
+        )
+        return cur.rowcount > 0
+
+
+# ── Automod Profiles (v2.9) ─────────────────────────────────────────────────
+
+# Built-in profiles: normal (baseline), strict (lower thresholds), raid (aggressive)
+BUILTIN_PROFILES = {
+    "normal": {
+        "spam_msg_limit": 5,
+        "spam_window_sec": 8,
+        "spam_dup_limit": 3,
+        "spam_mention_limit": 5,
+        "spam_emoji_limit": 15,
+        "violation_jail_threshold": 5,
+        "violation_window_minutes": 60,
+    },
+    "strict": {
+        "spam_msg_limit": 3,
+        "spam_window_sec": 10,
+        "spam_dup_limit": 2,
+        "spam_mention_limit": 3,
+        "spam_emoji_limit": 8,
+        "violation_jail_threshold": 3,
+        "violation_window_minutes": 30,
+    },
+    "raid": {
+        "spam_msg_limit": 2,
+        "spam_window_sec": 15,
+        "spam_dup_limit": 1,
+        "spam_mention_limit": 2,
+        "spam_emoji_limit": 5,
+        "violation_jail_threshold": 2,
+        "violation_window_minutes": 15,
+        "invite_filter_enabled": 1,
+        "link_filter_enabled": 1,
+        "wordlist_enabled": 1,
+        "slowmode_enabled": 1,
+        "slowmode_seconds": 10,
+    },
+}
+
+
+def seed_profiles(guild_id: str) -> None:
+    """Insert built-in profiles if they don't exist yet."""
+    with get_conn() as conn:
+        for name, overrides in BUILTIN_PROFILES.items():
+            conn.execute(
+                """INSERT OR IGNORE INTO automod_profiles (guild_id, name, overrides, built_in)
+                   VALUES (?, ?, ?, 1)""",
+                (guild_id, name, json.dumps(overrides)),
+            )
+
+
+def get_profile(guild_id: str, name: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM automod_profiles WHERE guild_id = ? AND name = ?",
+            (guild_id, name),
+        ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    d["overrides"] = json.loads(d["overrides"])
+    return d
+
+
+def get_all_profiles(guild_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM automod_profiles WHERE guild_id = ? ORDER BY built_in DESC, name",
+            (guild_id,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["overrides"] = json.loads(d["overrides"])
+        result.append(d)
+    return result
+
+
+def upsert_profile(guild_id: str, name: str, overrides: dict, built_in: bool = False) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO automod_profiles (guild_id, name, overrides, built_in)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(guild_id, name) DO UPDATE SET
+                   overrides = excluded.overrides""",
+            (guild_id, name, json.dumps(overrides), int(built_in)),
+        )
+
+
+def delete_profile(guild_id: str, name: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM automod_profiles WHERE guild_id = ? AND name = ? AND built_in = 0",
+            (guild_id, name),
+        )
+        return cur.rowcount > 0
+
+
+def get_effective_config(guild_id: int) -> dict:
+    """
+    Return guild config with the active profile's overrides applied.
+    This is what the automod pipeline should use instead of raw get_config().
+    """
+    cfg = get_config(guild_id)
+    if cfg is None:
+        return {}
+    active = cfg.get("active_profile") or "normal"
+    profile = get_profile(str(guild_id), active)
+    if profile and profile.get("overrides"):
+        cfg = dict(cfg)  # copy so we don't mutate the cached version
+        cfg.update(profile["overrides"])
+    return cfg

@@ -1,5 +1,5 @@
 """
-cogs/move.py — /move command.
+cogs/move.py -- /move command.
 Moves messages from selected users in the current channel to a target channel.
 Uses webhooks to preserve author identity. Re-uploads attachments.
 Permission: Moderator+
@@ -158,7 +158,7 @@ class Move(commands.Cog):
         dest_embed = discord.Embed(
             title="💬 We've moved this conversation here",
             description=(
-                f"{user_mentions} — we've brought your messages over from "
+                f"{user_mentions} -- we've brought your messages over from "
                 f"{interaction.channel.mention}. Feel free to continue here!"
             ),
             color=0x57F287,

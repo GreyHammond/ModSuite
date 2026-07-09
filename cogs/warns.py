@@ -123,7 +123,7 @@ class Warns(commands.Cog):
         if is_member:
             warn_id, total, escalation = await do_warn(interaction.guild, user, interaction.user, reason, self.bot)
         else:
-            # User not in server — just record the warn, no escalation
+            # User not in server -- just record the warn, no escalation
             mod_id = interaction.user.id
             mod_name = interaction.user.display_name
             warn_id = db.add_warn(interaction.guild_id, user.id, mod_id, mod_name, reason)
@@ -224,7 +224,7 @@ class Warns(commands.Cog):
 
         name_display = user.display_name if is_member else str(user)
         embed = discord.Embed(
-            title=f"📋 Moderation History — {name_display}",
+            title=f"📋 Moderation History -- {name_display}",
             color=discord.Color.blurple(),
             timestamp=datetime.utcnow(),
         )
@@ -254,7 +254,9 @@ class Warns(commands.Cog):
         # ── Kicks / Bans / Mutes / etc. from mod_logs ─────────────────────────
         # Warns are already displayed above; skip them here to avoid duplication.
         NON_WARN_ACTIONS = {"KICK", "BAN", "UNBAN", "MUTE", "UNMUTE", "JAIL",
-                            "UNJAIL", "TEMPJAIL", "SOFTBAN", "UNWARN"}
+                            "UNJAIL", "TEMPJAIL", "SOFTBAN", "UNWARN",
+                            "TEMPBAN", "VIOLATION", "VIOLATIONS_CLEARED",
+                            "PROFILE_SWITCH", "NAME_FILTER", "VERIFIED_GATE"}
         enforcement = [l for l in mod_log_entries if (l.get("action") or "").upper() in NON_WARN_ACTIONS]
         if enforcement:
             action_icons = {
@@ -262,6 +264,9 @@ class Warns(commands.Cog):
                 "MUTE": "🔇", "UNMUTE": "🔊",
                 "JAIL": "🔒", "UNJAIL": "🔓", "TEMPJAIL": "⏱",
                 "SOFTBAN": "🧼", "UNWARN": "↩",
+                "TEMPBAN": "⏳", "VIOLATION": "🔶", "VIOLATIONS_CLEARED": "🧹",
+                "PROFILE_SWITCH": "🎚️",
+                "NAME_FILTER": "🚫", "VERIFIED_GATE": "🚪",
             }
             embed.add_field(name="\u200b", value=f"⚖️ **Enforcement History ({len(enforcement)} entries)**", inline=False)
             for l in enforcement[:10]:  # show last 10
@@ -269,7 +274,7 @@ class Warns(commands.Cog):
                 icon = action_icons.get(act, "•")
                 date_str = (l.get("timestamp") or "")[:10]
                 by = l.get("actor_username") or "?"
-                reason = l.get("reason") or "—"
+                reason = l.get("reason") or "--"
                 embed.add_field(
                     name=f"{icon} {act} #{l.get('id')} · {date_str}",
                     value=f"**By:** {by}\n**Reason:** {reason}",

@@ -46,7 +46,7 @@ class Raid(commands.Cog):
 
         # ── Active raid mode: block new joiners immediately ─────────────────
         if member.guild.id in self._locked_guilds:
-            action = (cfg.get("raid_active_action") or "kick").lower()
+            action = (cfg.get("raid_active_action") or "ban").lower()
             try:
                 if action == "ban":
                     await member.ban(reason="AutoMod raid: joined during active lockdown",
@@ -55,8 +55,18 @@ class Raid(commands.Cog):
                 else:
                     await member.kick(reason="AutoMod raid: joined during active lockdown")
                     outcome = "kicked"
+                # Log to mod_logs DB so role persistence and /history see it
+                db.add_mod_log(
+                    guild_id=str(member.guild.id),
+                    action="BAN" if action == "ban" else "KICK",
+                    target_id=str(member.id),
+                    target_username=str(member),
+                    actor_id=str(self.bot.user.id) if self.bot.user else "",
+                    actor_username="AutoMod (raid)",
+                    reason=f"Raid: joined during active lockdown ({outcome})",
+                )
                 embed = discord.Embed(
-                    title="🚨 Raid — new joiner blocked",
+                    title="🚨 Raid -- new joiner blocked",
                     description=f"{member} (`{member.id}`) was **{outcome}** on join.",
                     color=discord.Color.red(),
                     timestamp=datetime.utcnow(),
@@ -72,7 +82,7 @@ class Raid(commands.Cog):
             account_age = (datetime.now(timezone.utc) - member.created_at).days
             if account_age < min_age_days:
                 embed = discord.Embed(
-                    title="⚠️ Suspicious join — young account",
+                    title="⚠️ Suspicious join -- young account",
                     color=discord.Color.gold(),
                     timestamp=datetime.utcnow(),
                 )
@@ -80,7 +90,7 @@ class Raid(commands.Cog):
                 embed.add_field(name="Account age", value=f"{account_age}d (min: {min_age_days}d)",         inline=True)
                 embed.add_field(name="Created",     value=f"<t:{int(member.created_at.timestamp())}:R>",    inline=False)
                 await _post_modlog(member.guild, cfg, embed)
-                # Flag only — don't auto-kick individual young accounts.
+                # Flag only -- don't auto-kick individual young accounts.
                 # The raid detector below handles bulk-join scenarios where they matter most.
 
         # ── Auto-role ───────────────────────────────────────────────────────
@@ -116,6 +126,12 @@ class Raid(commands.Cog):
         self._locked_guilds.add(guild.id)
         everyone = guild.default_role
 
+        # Auto-switch to "raid" profile
+        current_profile = cfg.get("active_profile") or "normal"
+        if current_profile != "raid":
+            db.upsert_config(guild.id, profile_before_raid=current_profile, active_profile="raid")
+            db.seed_profiles(str(guild.id))  # ensure raid profile exists
+
         # Lock all non-staff text channels
         for ch in guild.text_channels:
             ow = ch.overwrites_for(everyone)
@@ -133,7 +149,7 @@ class Raid(commands.Cog):
                 if guild.verification_level != discord.VerificationLevel.highest:
                     await guild.edit(
                         verification_level=discord.VerificationLevel.highest,
-                        reason="Raid lockdown — auto-verification bump",
+                        reason="Raid lockdown -- auto-verification bump",
                     )
                     verification_changed = True
             except (discord.Forbidden, discord.HTTPException):
@@ -146,7 +162,9 @@ class Raid(commands.Cog):
             timestamp=datetime.utcnow(),
         )
         embed.add_field(name="Triggered",           value="Automatically" if auto else "Manually",              inline=True)
-        embed.add_field(name="Active-raid action",  value=(cfg.get("raid_active_action") or "kick").capitalize(), inline=True)
+        embed.add_field(name="Active-raid action",  value=(cfg.get("raid_active_action") or "ban").capitalize(), inline=True)
+        if current_profile != "raid":
+            embed.add_field(name="Profile", value=f"Switched from **{current_profile}** to **raid**", inline=False)
         if verification_changed:
             embed.add_field(name="Verification level", value="Raised to **highest**", inline=False)
         cooldown = cfg.get("raid_lockdown_cooldown_min") or 0
@@ -200,6 +218,13 @@ class Raid(commands.Cog):
         if prior and not prior.done():
             prior.cancel()
 
+        # Restore profile from before raid
+        profile_restored = ""
+        saved_profile = cfg.get("profile_before_raid") or ""
+        if saved_profile and cfg.get("active_profile") == "raid":
+            db.upsert_config(guild.id, active_profile=saved_profile, profile_before_raid="")
+            profile_restored = saved_profile
+
         embed = discord.Embed(
             title="✅ Lockdown Lifted",
             description="Server access has been restored.",
@@ -209,6 +234,8 @@ class Raid(commands.Cog):
         embed.add_field(name="Lifted", value="Automatically (cooldown)" if auto else "Manually", inline=True)
         if verification_restored:
             embed.add_field(name="Verification level", value="Restored to previous", inline=True)
+        if profile_restored:
+            embed.add_field(name="Profile", value=f"Restored to **{profile_restored}**", inline=True)
         await _post_modlog(guild, cfg, embed)
 
     # ── Slash commands ──────────────────────────────────────────────────────

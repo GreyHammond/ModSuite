@@ -1,8 +1,8 @@
 """
-admin.py — Admin & Mod utility commands
-/presence  — Change bot activity at runtime (Admin)
-/say       — Post a message as the bot (Mod + Admin)
-/setautojail — Set auto-jail duration for warn escalation (Admin)
+admin.py -- Admin & Mod utility commands
+/presence  -- Change bot activity at runtime (Admin)
+/say       -- Post a message as the bot (Mod + Admin)
+/setautojail -- Set auto-jail duration for warn escalation (Admin)
 """
 
 import discord

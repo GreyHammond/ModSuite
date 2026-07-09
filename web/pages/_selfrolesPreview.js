@@ -1,5 +1,5 @@
 /**
- * _selfrolesPreview.js — Agent 4 (private module)
+ * _selfrolesPreview.js -- Agent 4 (private module)
  * Not registered in the router. Imported only by selfroles.js.
  *
  * Exports:

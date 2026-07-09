@@ -1,5 +1,5 @@
 /**
- * selfroles.js — Agent 4
+ * selfroles.js -- Agent 4
  * Self Roles page: category list, intro text editor, new-category builder.
  *
  * GET    /selfroles/categories
@@ -7,7 +7,7 @@
  * PUT    /selfroles/categories/{id}
  * DELETE /selfroles/categories/{id}
  *
- * Live preview via _selfrolesPreview.js — renders <@&role_id> (exact Discord format).
+ * Live preview via _selfrolesPreview.js -- renders <@&role_id> (exact Discord format).
  * role_id is a string confirmed present in the API response.
  */
 

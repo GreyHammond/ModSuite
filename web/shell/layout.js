@@ -20,7 +20,7 @@ export async function buildLayout(app) {
 export function setPageTitle(title) {
   const el = document.getElementById('topbar-title');
   if (el) el.textContent = title;
-  document.title = `${title} — ModSuite`;
+  document.title = `${title} -- ModSuite`;
 }
 
 export function setActiveNav(routeKey) {

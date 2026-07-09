@@ -52,6 +52,9 @@ class CommunityBot(commands.Bot):
             "cogs.threads",
             "cogs.automod",
             "cogs.honeypot",
+            "cogs.violations",
+            "cogs.profiles",
+            "cogs.namefilter",
         ]
         for cog in cogs:
             await self.load_extension(cog)
@@ -59,18 +62,21 @@ class CommunityBot(commands.Bot):
 
         # ── Start REST API alongside the bot ──────────────────────────────────
         import uvicorn
+        import os as _os
         import api as api_module
         api_module.set_bot(self)
         api_module.register_auth_routes(bot=self)
+        api_host = _os.getenv("API_HOST", "0.0.0.0")
+        api_port = int(_os.getenv("API_PORT", "8000"))
         uvicorn_config = uvicorn.Config(
             api_module.app,
-            host="0.0.0.0",
-            port=8000,
+            host=api_host,
+            port=api_port,
             log_level="warning",
         )
         server = uvicorn.Server(uvicorn_config)
         asyncio.get_event_loop().create_task(server.serve())
-        log.info("REST API starting on http://0.0.0.0:8000")
+        log.info(f"REST API starting on http://{api_host}:{api_port}")
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (ID: {self.user.id})")
@@ -82,10 +88,12 @@ class CommunityBot(commands.Bot):
             seeded = db.seed_bot_messages(str(guild.id), DEFAULTS)
             for slot in seeded:
                 log.warning(
-                    f"[{guild.name}] bot_messages slot '{slot}' was missing — seeded with default."
+                    f"[{guild.name}] bot_messages slot '{slot}' was missing -- seeded with default."
                 )
             # Migrate built-in selfrole categories to the new tables (idempotent)
             db.migrate_builtin_selfrole_categories(guild.id)
+            # Seed built-in automod profiles (normal, strict, raid)
+            db.seed_profiles(str(guild.id))
 
         for guild in self.guilds:
             try:
@@ -136,13 +144,13 @@ class CommunityBot(commands.Bot):
         try:
             payload = json.loads(action["payload"])
         except Exception:
-            log.error(f"Action #{action_id}: invalid JSON payload — marking failed.")
+            log.error(f"Action #{action_id}: invalid JSON payload -- marking failed.")
             db.fail_action(action_id)
             return
 
         guild = self.get_guild(int(action["guild_id"]))
         if guild is None:
-            log.warning(f"Action #{action_id}: guild {action['guild_id']} not found — skipping.")
+            log.warning(f"Action #{action_id}: guild {action['guild_id']} not found -- skipping.")
             db.fail_action(action_id)
             return
 
@@ -163,7 +171,7 @@ class CommunityBot(commands.Bot):
                 await self._action_close_ticket(guild, action_id, payload)
 
             else:
-                log.warning(f"Action #{action_id}: unknown action_type '{action_type}' — skipping.")
+                log.warning(f"Action #{action_id}: unknown action_type '{action_type}' -- skipping.")
                 db.fail_action(action_id)
 
         except Exception as e:
@@ -190,7 +198,7 @@ class CommunityBot(commands.Bot):
         """
         category_id = payload["category_id"]
         name = payload["name"]
-        intro_text = payload.get("intro_text") or f"**{name}** — pick your role(s)!"
+        intro_text = payload.get("intro_text") or f"**{name}** -- pick your role(s)!"
         roles_spec = payload.get("roles", [])  # [{"name": "PC", "emoji": "💻"}]
 
         # Find the self-roles channel from guild config
@@ -409,7 +417,7 @@ class CommunityBot(commands.Bot):
                     (datetime.utcnow().isoformat(), ticket_id),
                 )
             db.complete_action(action_id)
-            log.info(f"Action #{action_id}: ticket #{ticket_id} channel missing — marked closed.")
+            log.info(f"Action #{action_id}: ticket #{ticket_id} channel missing -- marked closed.")
             return
 
         from cogs.modmail import _close_ticket

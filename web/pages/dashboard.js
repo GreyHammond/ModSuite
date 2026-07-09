@@ -130,7 +130,7 @@ function errState() {
   </div></div>`;
 }
 
-const ACT_ICONS = { warn:'⚠️', jail:'🔒', unjail:'🔓', ban:'🔨', kick:'👢', mute:'🔇', unmute:'🔊', softban:'⚔️', ticket:'💬', note:'🔖' };
+const ACT_ICONS = { warn:'⚠️', jail:'🔒', unjail:'🔓', ban:'🔨', kick:'👢', mute:'🔇', unmute:'🔊', softban:'⚔️', ticket:'💬', note:'🔖', tempban:'⏳', violation:'🔶', violations_cleared:'🧹', tempjail:'⏱', unban:'✅', phishing:'🎣', profile_switch:'🎚️', name_filter:'🚫', verified_gate:'🚪' };
 
 function buildPage({ stats, activity, jails, health, trends, offenders, automod }) {
   const acts     = Array.isArray(activity)  ? activity  : [];
@@ -141,10 +141,10 @@ function buildPage({ stats, activity, jails, health, trends, offenders, automod 
 
   return `<div class="dash-wrap">
     <div class="stat-grid">
-      ${statCard('Total Warns',  stats?.total_warns  ?? '—', '', 'gold')}
-      ${statCard('Active Jails', stats?.active_jails ?? '—', '', jailList.length ? 'red' : '')}
-      ${statCard('Open Tickets', stats?.open_tickets ?? '—', '', acts.some(a => a.type==='ticket') ? 'green' : '')}
-      ${statCard('Members',      stats?.member_count ?? '—', '')}
+      ${statCard('Total Warns',  stats?.total_warns  ?? '--', '', 'gold')}
+      ${statCard('Active Jails', stats?.active_jails ?? '--', '', jailList.length ? 'red' : '')}
+      ${statCard('Open Tickets', stats?.open_tickets ?? '--', '', acts.some(a => a.type==='ticket') ? 'green' : '')}
+      ${statCard('Members',      stats?.member_count ?? '--', '')}
     </div>
 
     <div class="dash-cols">
@@ -219,7 +219,10 @@ function statCard(label, value, sub, cls) {
 const ACT_VERBS = {
   warn: 'Warned', jail: 'Jailed', unjail: 'Unjailed', ban: 'Banned',
   kick: 'Kicked', mute: 'Muted', unmute: 'Unmuted', softban: 'Softbanned',
-  ticket: 'Ticket from', note: 'Note on',
+  ticket: 'Ticket from', note: 'Note on', tempban: 'Temp-banned',
+  violation: 'Violation', violations_cleared: 'Violations cleared',
+  tempjail: 'Temp-jailed', unban: 'Unbanned', profile_switch: 'Profile switched',
+  name_filter: 'Name blocked', verified_gate: 'Verified (gate)', phishing: 'Phishing link blocked',
 };
 
 function actRow(item) {
@@ -229,11 +232,11 @@ function actRow(item) {
     : (item.target_id ? `User ${esc(item.target_id)}` : 'Unknown user');
   const actor  = item.actor_username ? esc(item.actor_username) : '';
   const verb   = ACT_VERBS[type] || (type.charAt(0).toUpperCase() + type.slice(1));
-  const reason = item.reason ? ` — ${esc(item.reason)}` : '';
+  const reason = item.reason ? ` -- ${esc(item.reason)}` : '';
 
   const desc = `${verb} ${target}${actor ? ` by ${actor}` : ''}${reason}`;
 
-  // No dedicated page per action type — warns go to the Warns page,
+  // No dedicated page per action type -- warns go to the Warns page,
   // everything else (jail/ban/kick/mute/etc.) goes to Mod Logs, which
   // lists every action type.
   const route = type === 'warn' ? 'warns' : 'modlogs';
@@ -299,18 +302,31 @@ function trendChart(data) {
 }
 
 function automodAndHealth(am, hl) {
+  const maxLen = am?.max_message_length || 0;
+  const minLen = am?.min_message_length || 0;
+  const lenActive = maxLen > 0 || minLen > 0;
   const rows = [
-    { on: !!am?.spam,    label: 'Spam',    val: am ? (am.spam ? am.spam_action : 'off')    : '?' },
-    { on: !!am?.links,   label: 'Links',   val: am ? (am.links ? am.link_mode : 'off')     : '?' },
-    { on: !!am?.invites, label: 'Invites', val: am ? (am.invites ? 'blocking' : 'off')     : '?' },
+    { on: !!am?.spam,       label: 'Spam',          val: am ? (am.spam ? am.spam_action : 'off')    : '?' },
+    { on: !!am?.links,      label: 'Links',         val: am ? (am.links ? am.link_mode : 'off')     : '?' },
+    { on: !!am?.invites,    label: 'Invites',       val: am ? (am.invites ? 'blocking' : 'off')     : '?' },
+    { on: !!am?.word_lists, label: 'Word lists',    val: am ? (am.word_lists ? 'active' : 'off')    : '?' },
+    { on: !!am?.antiphish,  label: 'Anti-phishing', val: am ? (am.antiphish ? 'scanning' : 'off')   : '?' },
+    { on: lenActive,        label: 'Msg length',    val: am ? (lenActive ? `${minLen}-${maxLen || '∞'}` : 'off') : '?' },
+    { on: !!am?.slowmode,   label: 'Slowmode',      val: am ? (am.slowmode ? `${am.slowmode_seconds || 5}s` : 'off') : '?' },
+    { on: true,             label: 'Violations',    val: am ? `${am.violation_threshold || 5} / ${am.violation_window || 60}m` : '?' },
+    { on: !!am?.role_persist, label: 'Role persist', val: am ? (am.role_persist ? 'on' : 'off')     : '?' },
+    { on: true,               label: 'Profile',      val: am ? (am.active_profile || 'normal')    : '?' },
+    { on: !!am?.allcaps,      label: 'All-caps',     val: am ? (am.allcaps ? `${am.allcaps_threshold || 70}%` : 'off') : '?' },
+    { on: !!am?.name_filter,  label: 'Name filter',  val: am ? (am.name_filter ? am.name_filter_action : 'off') : '?' },
+    { on: !!am?.verify_gate,  label: 'Verify gate',  val: am ? (am.verify_gate ? 'active' : 'off') : '?' },
   ];
 
   const health = hl ? `
     <div class="hlth-body">
-      <div class="hlth-row"><span class="hlth-lbl">Latency</span><span class="hlth-val">${hl.latency_ms != null ? hl.latency_ms + ' ms' : '—'}</span></div>
+      <div class="hlth-row"><span class="hlth-lbl">Latency</span><span class="hlth-val">${hl.latency_ms != null ? hl.latency_ms + ' ms' : '--'}</span></div>
       <div class="hlth-row"><span class="hlth-lbl">Uptime</span><span class="hlth-val">${fmtUptime(hl.uptime_seconds)}</span></div>
-      <div class="hlth-row"><span class="hlth-lbl">Memory</span><span class="hlth-val">${hl.memory_mb != null ? hl.memory_mb + ' MB' : '—'}</span></div>
-      <div class="hlth-row"><span class="hlth-lbl">Guilds</span><span class="hlth-val">${hl.guilds ?? '—'}</span></div>
+      <div class="hlth-row"><span class="hlth-lbl">Memory</span><span class="hlth-val">${hl.memory_mb != null ? hl.memory_mb + ' MB' : '--'}</span></div>
+      <div class="hlth-row"><span class="hlth-lbl">Guilds</span><span class="hlth-val">${hl.guilds ?? '--'}</span></div>
     </div>
   ` : '';
 
@@ -329,7 +345,7 @@ function automodAndHealth(am, hl) {
 }
 
 function fmtUptime(sec) {
-  if (!sec && sec !== 0) return '—';
+  if (!sec && sec !== 0) return '--';
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -346,7 +362,7 @@ function shortDate(iso) {
 }
 
 function ago(d) {
-  if (!d) return '—';
+  if (!d) return '--';
   const diff = Date.now() - new Date(d).getTime();
   const future = diff < 0;
   const abs = Math.abs(diff);

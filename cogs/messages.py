@@ -1,8 +1,8 @@
 """
-messages.py — Bot message slot management (Admin only)
-/setmessage   — Edit any bot message slot via Discord modal
-/viewmessages — View all slots and current values
-/resetmessage — Reset a slot back to its default
+messages.py -- Bot message slot management (Admin only)
+/setmessage   -- Edit any bot message slot via Discord modal
+/viewmessages -- View all slots and current values
+/resetmessage -- Reset a slot back to its default
 """
 
 import discord
@@ -112,7 +112,7 @@ class Messages(commands.Cog):
             value_text = custom.get(key) or DEFAULTS.get(key, "*(no default)*")
             tag        = "✏️ Custom" if is_custom else "📋 Default"
             embed.add_field(
-                name=f"{label}  —  {tag}  `{variables}`",
+                name=f"{label}  --  {tag}  `{variables}`",
                 value=f"```{value_text}```",
                 inline=False,
             )

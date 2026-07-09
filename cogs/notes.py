@@ -1,9 +1,9 @@
 """
-notes.py — Staff Note System.
+notes.py -- Staff Note System.
 
 Notes are internal staff annotations attached to users.
 They are NEVER shown to the subject user under any circumstance.
-They do NOT appear in /userinfo — only in /history (staff-only).
+They do NOT appear in /userinfo -- only in /history (staff-only).
 Supports targeting by @mention or user ID for users not in the server.
 """
 import discord
@@ -77,7 +77,7 @@ class Notes(commands.Cog):
 
         name_display = user.display_name if is_member else str(user)
         embed = discord.Embed(
-            title=f"📝 Staff Notes — {name_display}",
+            title=f"📝 Staff Notes -- {name_display}",
             color=discord.Color.blurple(),
             timestamp=datetime.utcnow(),
         )
@@ -101,7 +101,7 @@ class Notes(commands.Cog):
                     inline=False,
                 )
 
-        embed.set_footer(text="Staff eyes only — never shown to the subject user.")
+        embed.set_footer(text="Staff eyes only -- never shown to the subject user.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="delnote", description="Soft-delete a staff note by ID.")

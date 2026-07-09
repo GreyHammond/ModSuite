@@ -99,7 +99,7 @@ export async function render(container) {
   container.innerHTML = `<div class="wn-wrap">${Array(3).fill(`<div class="skeleton" style="height:76px;border-radius:10px;margin-bottom:10px"></div>`).join('')}</div>`;
   try {
     const data = await apiFetch('/warns');
-    // API returns { total, results: [...] } — not a bare array or { warns: [...] }
+    // API returns { total, results: [...] } -- not a bare array or { warns: [...] }
     _warns = Array.isArray(data) ? data : (data?.results ?? data?.warns ?? []);
     _search = ''; _activeOnly = true;
     container.innerHTML = buildPage();
@@ -370,4 +370,4 @@ function errState() {
 }
 
 const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const fmtDate = d => !d ? '—' : new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});
+const fmtDate = d => !d ? '--' : new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});

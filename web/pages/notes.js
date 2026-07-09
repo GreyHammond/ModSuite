@@ -423,4 +423,4 @@ function errState() {
 }
 
 const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const fmtDate = d => !d ? '—' : new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});
+const fmtDate = d => !d ? '--' : new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});

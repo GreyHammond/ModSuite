@@ -4,7 +4,7 @@
 //
 // Empty base means all API calls are relative to the current origin.
 // This makes the dashboard work whether it's served from 127.0.0.1, localhost,
-// an SSH tunnel, or a reverse proxy — the browser resolves paths against
+// an SSH tunnel, or a reverse proxy -- the browser resolves paths against
 // whatever origin loaded the page.
 
 export const API_BASE = '';

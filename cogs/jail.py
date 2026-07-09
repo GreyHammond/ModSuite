@@ -63,7 +63,7 @@ def _build_warning_history_embed(
         jailed_by_str = mod.mention
 
     embed = discord.Embed(
-        title=f"📋 Jail — Warning History: {member.display_name}",
+        title=f"📋 Jail -- Warning History: {member.display_name}",
         color=0xE67E22,
         timestamp=datetime.utcnow(),
     )
@@ -77,7 +77,7 @@ def _build_warning_history_embed(
         date_str = w["timestamp"][:10]
         embed.add_field(
             name=f"Warn #{w['id']}",
-            value=f"{w['reason']} — issued by {w['mod_name']} on {date_str}",
+            value=f"{w['reason']} -- issued by {w['mod_name']} on {date_str}",
             inline=False,
         )
 
@@ -277,7 +277,7 @@ class Jail(commands.Cog):
     def cog_unload(self):
         self.auto_unjail_loop.cancel()
 
-    @app_commands.command(name="jail", description="Jail a member — strips roles and creates a private channel.")
+    @app_commands.command(name="jail", description="Jail a member -- strips roles and creates a private channel.")
     @app_commands.describe(member="Member to jail", reason="Reason", notify="DM the user that they've been jailed?")
     async def jail(self, interaction: discord.Interaction, member: discord.Member,
                    reason: str = "No reason provided.", notify: bool = True):
@@ -318,7 +318,7 @@ class Jail(commands.Cog):
         if not ok_check:
             return await interaction.response.send_message("❌ That user is not currently jailed.", ephemeral=True)
 
-        # Respond first — the channel gets deleted during unjail which breaks edit_original_response
+        # Respond first -- the channel gets deleted during unjail which breaks edit_original_response
         await interaction.response.send_message(f"🔓 Releasing {member.mention}...", ephemeral=True)
         await do_unjail(interaction.guild, member, interaction.user, self.bot)
 
@@ -381,7 +381,7 @@ class Jail(commands.Cog):
                 db.remove_jail(row["guild_id"], row["user_id"])
                 continue
             try:
-                # actor=None signals automated action — can_moderate allows everything except server owner
+                # actor=None signals automated action -- can_moderate allows everything except server owner
                 await do_unjail(guild, member, None, self.bot)
             except Exception as e:
                 import logging

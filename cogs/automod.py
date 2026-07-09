@@ -117,6 +117,8 @@ class AutoMod(commands.Cog):
         self.bot = bot
         # guild_id -> user_id -> UserTracker
         self._trackers: dict[int, dict[int, UserTracker]] = {}
+        # (guild_id, channel_id, user_id) -> last_message_timestamp
+        self._slowmode_last: dict[tuple[int, int, int], float] = {}
 
     # ── Main message listener ────────────────────────────────────────────────
     @commands.Cog.listener()
@@ -131,6 +133,9 @@ class AutoMod(commands.Cog):
         if cfg is None or not cfg.get("setup_complete"):
             return
 
+        # Apply active profile overrides to config
+        cfg = db.get_effective_config(message.guild.id)
+
         # Staff and immune roles bypass all automod
         if _is_staff(message.author, cfg):
             return
@@ -138,10 +143,20 @@ class AutoMod(commands.Cog):
         if any(str(r.id) in {str(i) for i in immune_roles} for r in message.author.roles):
             return
 
-        # Run each filter — first one to act stops the chain to avoid double-punishing
+        # Run each filter -- first one to act stops the chain to avoid double-punishing
         if cfg.get("invite_filter_enabled") and await self._check_invites(message, cfg):
             return
         if cfg.get("link_filter_enabled") and await self._check_links(message, cfg):
+            return
+        if cfg.get("antiphish_enabled", 1) and await self._check_phishing(message, cfg):
+            return
+        if cfg.get("wordlist_enabled") and await self._check_word_lists(message, cfg):
+            return
+        if await self._check_message_length(message, cfg):
+            return
+        if cfg.get("allcaps_enabled") and await self._check_allcaps(message, cfg):
+            return
+        if cfg.get("slowmode_enabled") and await self._check_slowmode(message, cfg):
             return
         if cfg.get("spam_enabled") and await self._check_spam(message, cfg):
             return
@@ -150,12 +165,17 @@ class AutoMod(commands.Cog):
     async def _check_invites(self, message: discord.Message, cfg: dict) -> bool:
         if not INVITE_PATTERN.search(message.content):
             return False
-        action = (cfg.get("invite_action") or "delete").lower()
-        await self._apply_action(
-            message, cfg, action,
-            reason="Posted a Discord invite link",
-            trigger="Invite link",
-            mute_minutes=cfg.get("spam_mute_minutes") or 10,
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+        from .violations import record_violation
+        await record_violation(
+            message.guild, message.author,
+            violation_name="invite",
+            trigger_detail="Posted a Discord invite link",
+            bot=self.bot,
+            message=message,
         )
         return True
 
@@ -203,12 +223,17 @@ class AutoMod(commands.Cog):
         if offender is None:
             return False
 
-        action = (cfg.get("link_action") or "delete").lower()
-        await self._apply_action(
-            message, cfg, action,
-            reason=f"Posted disallowed link ({offender})",
-            trigger=f"Link filter ({mode}) — {offender}",
-            mute_minutes=cfg.get("spam_mute_minutes") or 10,
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+        from .violations import record_violation
+        await record_violation(
+            message.guild, message.author,
+            violation_name="link",
+            trigger_detail=f"Disallowed link ({offender}) -- mode: {mode}",
+            bot=self.bot,
+            message=message,
         )
         return True
 
@@ -224,9 +249,216 @@ class AutoMod(commands.Cog):
                 return True
         return False
 
+    # ── Word list filter ────────────────────────────────────────────────────
+    async def _check_word_lists(self, message: discord.Message, cfg: dict) -> bool:
+        word_lists = db.get_all_word_lists(str(message.guild.id))
+        if not word_lists:
+            return False
+        content_lower = message.content.lower()
+        # Split into words for whole-word matching
+        import re as _re
+        content_words = set(_re.findall(r'\w+', content_lower))
+        for wl in word_lists:
+            for word in wl.get("words", []):
+                w = word.lower().strip()
+                if not w:
+                    continue
+                # Multi-word phrases: substring match. Single words: whole-word match.
+                if " " in w:
+                    if w in content_lower:
+                        try:
+                            await message.delete()
+                        except (discord.NotFound, discord.Forbidden):
+                            pass
+                        from .violations import record_violation
+                        await record_violation(
+                            message.guild, message.author,
+                            violation_name="word_filter",
+                            trigger_detail=f"Matched '{word}' in list '{wl['list_name']}'",
+                            bot=self.bot,
+                            message=message,
+                        )
+                        return True
+                else:
+                    if w in content_words:
+                        try:
+                            await message.delete()
+                        except (discord.NotFound, discord.Forbidden):
+                            pass
+                        from .violations import record_violation
+                        await record_violation(
+                            message.guild, message.author,
+                            violation_name="word_filter",
+                            trigger_detail=f"Matched '{word}' in list '{wl['list_name']}'",
+                            bot=self.bot,
+                            message=message,
+                        )
+                        return True
+        return False
+
+    # ── Anti-phishing link scan ──────────────────────────────────────────────
+    async def _check_phishing(self, message: discord.Message, cfg: dict) -> bool:
+        """Check all URLs against the SinkingYachts phishing database."""
+        urls = URL_PATTERN.findall(message.content)
+        if not urls:
+            return False
+
+        # Deduplicate hosts to avoid redundant API calls
+        hosts = set()
+        for url in urls:
+            try:
+                host = urlparse(url).netloc.lower()
+            except ValueError:
+                continue
+            if not host:
+                continue
+            if host.startswith("www."):
+                host = host[4:]
+            hosts.add(host)
+
+        if not hosts:
+            return False
+
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+                for host in hosts:
+                    try:
+                        async with session.get(
+                            f"https://phish.sinking.yachts/v2/check/{host}",
+                            headers={"Accept": "application/json"},
+                        ) as resp:
+                            if resp.status == 200:
+                                result = await resp.json()
+                                if result is True:
+                                    try:
+                                        await message.delete()
+                                    except (discord.NotFound, discord.Forbidden):
+                                        pass
+                                    from .violations import record_violation
+                                    await record_violation(
+                                        message.guild, message.author,
+                                        violation_name="phishing",
+                                        trigger_detail=f"Phishing domain detected: {host}",
+                                        bot=self.bot,
+                                        message=message,
+                                    )
+                                    return True
+                    except Exception:
+                        pass  # individual host check failure; try next
+        except Exception:
+            # Session creation failure -- fail open
+            pass
+
+        return False
+
+    # ── Message length filter ────────────────────────────────────────────────
+    async def _check_message_length(self, message: discord.Message, cfg: dict) -> bool:
+        max_len = cfg.get("max_message_length") or 0
+        min_len = cfg.get("min_message_length") or 0
+        content_len = len(message.content)
+
+        if max_len > 0 and content_len > max_len:
+            try:
+                await message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            from .violations import record_violation
+            await record_violation(
+                message.guild, message.author,
+                violation_name="message_length",
+                trigger_detail=f"Message too long ({content_len} chars, max {max_len})",
+                bot=self.bot,
+                message=message,
+            )
+            return True
+
+        if min_len > 0 and content_len < min_len and content_len > 0:
+            try:
+                await message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            from .violations import record_violation
+            await record_violation(
+                message.guild, message.author,
+                violation_name="message_length",
+                trigger_detail=f"Message too short ({content_len} chars, min {min_len})",
+                bot=self.bot,
+                message=message,
+            )
+            return True
+
+        return False
+
+    # ── All-caps filter ──────────────────────────────────────────────────────
+    async def _check_allcaps(self, message: discord.Message, cfg: dict) -> bool:
+        threshold = cfg.get("allcaps_threshold") or 70
+        min_len = cfg.get("allcaps_min_length") or 10
+        text = message.content
+
+        # Only check messages with enough alpha characters
+        alpha_chars = [c for c in text if c.isalpha()]
+        if len(alpha_chars) < min_len:
+            return False
+
+        upper_count = sum(1 for c in alpha_chars if c.isupper())
+        pct = (upper_count / len(alpha_chars)) * 100
+
+        if pct >= threshold:
+            try:
+                await message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            from .violations import record_violation
+            await record_violation(
+                message.guild, message.author,
+                violation_name="allcaps",
+                trigger_detail=f"All-caps message ({pct:.0f}% uppercase, threshold {threshold}%)",
+                bot=self.bot,
+                message=message,
+            )
+            return True
+
+        return False
+
+    # ── Per-channel slowmode ─────────────────────────────────────────────────
+    async def _check_slowmode(self, message: discord.Message, cfg: dict) -> bool:
+        """Per-user-per-channel rate limit enforced by the bot."""
+        slowmode_seconds = cfg.get("slowmode_seconds") or 5
+        slowmode_channels = {int(x) for x in _load_json_list(cfg.get("slowmode_channels")) if str(x).isdigit()}
+
+        # If channel list is set, only enforce in those channels
+        if slowmode_channels and message.channel.id not in slowmode_channels:
+            return False
+
+        gid = message.guild.id
+        uid = message.author.id
+        cid = message.channel.id
+        key = (gid, cid, uid)
+        now = datetime.now(timezone.utc).timestamp()
+
+        last = self._slowmode_last.get(key, 0)
+        if now - last < slowmode_seconds:
+            try:
+                await message.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            from .violations import record_violation
+            await record_violation(
+                message.guild, message.author,
+                violation_name="slowmode",
+                trigger_detail=f"Posting too fast in #{message.channel.name} ({slowmode_seconds}s cooldown)",
+                bot=self.bot,
+                message=message,
+            )
+            return True
+
+        self._slowmode_last[key] = now
+        return False
+
     # ── Spam detection ───────────────────────────────────────────────────────
     async def _check_spam(self, message: discord.Message, cfg: dict) -> bool:
-        # Per-message checks first (mentions, emojis) — cheap
+        # Per-message checks first (mentions, emojis) -- cheap
         mention_limit = cfg.get("spam_mention_limit") or 5
         emoji_limit   = cfg.get("spam_emoji_limit")   or 15
 
@@ -244,7 +476,7 @@ class AutoMod(commands.Cog):
             )
             return True
 
-        # Velocity + duplicate check — needs the tracker
+        # Velocity + duplicate check -- needs the tracker
         gid = message.guild.id
         uid = message.author.id
         tracker = self._trackers.setdefault(gid, {}).setdefault(uid, UserTracker())
@@ -289,12 +521,19 @@ class AutoMod(commands.Cog):
         return False
 
     async def _apply_spam_action(self, message: discord.Message, cfg: dict, reason: str, trigger: str):
-        action = (cfg.get("spam_action") or "mute").lower()
-        await self._apply_action(
-            message, cfg, action,
-            reason=reason,
-            trigger=f"Spam — {trigger}",
-            mute_minutes=cfg.get("spam_mute_minutes") or 10,
+        # Always delete the offending message
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+        # Feed into the violation engine instead of punishing directly
+        from .violations import record_violation
+        await record_violation(
+            message.guild, message.author,
+            violation_name="spam",
+            trigger_detail=f"{trigger}: {reason}",
+            bot=self.bot,
+            message=message,
         )
 
     # ── Shared action executor ───────────────────────────────────────────────
@@ -322,12 +561,12 @@ class AutoMod(commands.Cog):
         if action == "mute":
             # Route through the bot's own mute system for consistency with /mute:
             # - Discord timeout is still the enforcement mechanism (that's how /mute
-            #   works too — timeout is not a role in this bot).
+            #   works too -- timeout is not a role in this bot).
             # - The mute is recorded in the `mutes` table so /history and /unmute
             #   see it just like a manual mute.
             # - The user is DMed using the customizable `mute_dm` message template.
             duration = timedelta(minutes=mute_minutes)
-            # Discord's max timeout is 28 days — cap it defensively.
+            # Discord's max timeout is 28 days -- cap it defensively.
             discord_td = min(duration, timedelta(days=28))
             until = datetime.now(timezone.utc) + duration
             try:
@@ -380,11 +619,11 @@ class AutoMod(commands.Cog):
             except discord.HTTPException:
                 acted = "Deleted message (ban failed)"
 
-        # else: action == "delete" — nothing else to do
+        # else: action == "delete" -- nothing else to do
 
         # Persist to mod_logs so this appears on the user's /history + dashboard.
         # Action name matches manual moderation actions (MUTE / KICK / BAN)
-        # so filters work uniformly. Actor is the bot; the "AutoMod — trigger"
+        # so filters work uniformly. Actor is the bot; the "AutoMod -- trigger"
         # prefix in the reason field makes the source unmistakable.
         try:
             mod_log_action = {
@@ -401,14 +640,14 @@ class AutoMod(commands.Cog):
                 target_username=str(member),
                 actor_id=str(bot_user.id) if bot_user else "",
                 actor_username="AutoMod",
-                reason=f"AutoMod — {trigger}: {reason}",
+                reason=f"AutoMod -- {trigger}: {reason}",
             )
         except Exception:
             pass  # never let the audit-log write fail an action
 
         # Modlog embed
         embed = discord.Embed(
-            title=f"🛡️ AutoMod — {trigger}",
+            title=f"🛡️ AutoMod -- {trigger}",
             color=discord.Color.orange(),
             timestamp=datetime.utcnow(),
         )
@@ -474,13 +713,87 @@ class AutoMod(commands.Cog):
             value=f"Action: **{cfg.get('invite_action', 'delete')}**",
             inline=False,
         )
+        # Word lists
+        word_lists = db.get_all_word_lists(str(interaction.guild_id))
+        wl_count = sum(len(wl.get("words", [])) for wl in word_lists)
+        embed.add_field(
+            name=f"Word Lists {yn(cfg.get('wordlist_enabled'))}",
+            value=f"**{len(word_lists)}** list(s), **{wl_count}** total word(s)",
+            inline=False,
+        )
+        # Anti-phishing
+        embed.add_field(
+            name=f"Anti-Phishing {yn(cfg.get('antiphish_enabled', 1))}",
+            value="SinkingYachts API -- scans every URL for known phishing domains",
+            inline=False,
+        )
+        # Message length
+        max_len = cfg.get("max_message_length") or 0
+        min_len = cfg.get("min_message_length") or 0
+        len_parts = []
+        if max_len > 0:
+            len_parts.append(f"max: **{max_len}**")
+        if min_len > 0:
+            len_parts.append(f"min: **{min_len}**")
+        embed.add_field(
+            name=f"Message Length {yn(max_len > 0 or min_len > 0)}",
+            value=", ".join(len_parts) if len_parts else "No limits set",
+            inline=False,
+        )
+        # All-caps
+        embed.add_field(
+            name=f"All-Caps Filter {yn(cfg.get('allcaps_enabled'))}",
+            value=f"Threshold: **{cfg.get('allcaps_threshold', 70)}%** (min **{cfg.get('allcaps_min_length', 10)}** alpha chars)",
+            inline=False,
+        )
+        # Slowmode
+        sm_channels = _load_json_list(cfg.get("slowmode_channels"))
+        embed.add_field(
+            name=f"Slowmode {yn(cfg.get('slowmode_enabled'))}",
+            value=(
+                f"Interval: **{cfg.get('slowmode_seconds', 5)}s** per user per channel\n"
+                f"Channels: **{len(sm_channels) if sm_channels else 'all'}**"
+            ),
+            inline=False,
+        )
+        # Violations
+        embed.add_field(
+            name="Violation Engine",
+            value=(
+                f"Threshold: **{cfg.get('violation_jail_threshold', 5)}** in **{cfg.get('violation_window_minutes', 60)}m**\n"
+                f"Auto-jail duration: **{cfg.get('violation_jail_duration', '1d')}**\n"
+                f"Role persistence: {yn(cfg.get('role_persist_enabled', 1))}\n"
+                f"Active profile: **{cfg.get('active_profile', 'normal')}**"
+            ),
+            inline=False,
+        )
+        # Name filter
+        name_words = _load_json_list(cfg.get("name_filter_words"))
+        embed.add_field(
+            name=f"Name Filter {yn(cfg.get('name_filter_enabled'))}",
+            value=(
+                f"Action: **{cfg.get('name_filter_action', 'log')}**  ·  "
+                f"Confusables: {yn(cfg.get('name_filter_confusables', 1))}\n"
+                f"Blocked words: **{len(name_words)}**"
+            ),
+            inline=False,
+        )
+        # Verify gate
+        embed.add_field(
+            name=f"Verification Gate {yn(cfg.get('verify_gate_enabled'))}",
+            value=(
+                f"Role: {('<@&' + str(cfg.get('verify_gate_role_id')) + '>') if cfg.get('verify_gate_role_id') else '*(not set)*'}  ·  "
+                f"Channel: {('<#' + str(cfg.get('verify_gate_channel_id')) + '>') if cfg.get('verify_gate_channel_id') else '*(not set)*'}"
+            ),
+            inline=False,
+        )
         # Raid
         embed.add_field(
             name="Raid",
             value=(
                 f"Join threshold: **{cfg.get('raid_join_count', 10)}** in **{cfg.get('raid_join_seconds', 10)}s**\n"
                 f"Min account age: **{cfg.get('raid_min_account_age_days', 0)}d** (0 = off)\n"
-                f"During raid: **{cfg.get('raid_active_action', 'kick')}** joiners  ·  "
+                f"During raid: **{cfg.get('raid_active_action', 'ban')}** joiners  ·  "
                 f"Auto-verification: {yn(cfg.get('raid_auto_verification'))}\n"
                 f"Auto-unlock after: **{cfg.get('raid_lockdown_cooldown_min', 5)}m** (0 = manual only)"
             ),
@@ -608,7 +921,7 @@ class AutoMod(commands.Cog):
         )
 
     @automod_group.command(name="link_list", description="Show every domain on the whitelist and blacklist.")
-    @app_commands.describe(list_type="Which list to show — omit for both")
+    @app_commands.describe(list_type="Which list to show -- omit for both")
     @app_commands.choices(list_type=[
         app_commands.Choice(name="both",      value="both"),
         app_commands.Choice(name="whitelist", value="whitelist"),
@@ -710,19 +1023,212 @@ class AutoMod(commands.Cog):
             f"✅ Invite action set to **{action.name}**.", ephemeral=True
         )
 
-    # ── Immune ───────────────────────────────────────────────────────────────
-    @automod_group.command(name="immune", description="Toggle a role as immune to all AutoMod filters.")
+    # ── Anti-Phishing ────────────────────────────────────────────────────────
+    @automod_group.command(name="antiphish", description="Turn anti-phishing link scanning on or off.")
+    @app_commands.describe(enabled="Enable or disable phishing link scanning")
+    async def antiphish_toggle(self, interaction: discord.Interaction, enabled: bool):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, antiphish_enabled=1 if enabled else 0)
+        await interaction.response.send_message(
+            f"Anti-phishing scanning is now **{'on' if enabled else 'off'}**.", ephemeral=True
+        )
+
+    # ── Message Length ────────────────────────────────────────────────────────
+    @automod_group.command(name="max_length", description="Set max message length (0 to disable).")
+    @app_commands.describe(chars="Max characters per message (0 = no limit)")
+    async def max_length(self, interaction: discord.Interaction, chars: int):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, max_message_length=max(0, chars))
+        if chars > 0:
+            await interaction.response.send_message(
+                f"Max message length set to **{chars}** characters.", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("Max message length filter disabled.", ephemeral=True)
+
+    @automod_group.command(name="min_length", description="Set min message length (0 to disable).")
+    @app_commands.describe(chars="Min characters per message (0 = no limit)")
+    async def min_length(self, interaction: discord.Interaction, chars: int):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, min_message_length=max(0, chars))
+        if chars > 0:
+            await interaction.response.send_message(
+                f"Min message length set to **{chars}** characters.", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message("Min message length filter disabled.", ephemeral=True)
+
+    # ── All-Caps ──────────────────────────────────────────────────────────────
+    @automod_group.command(name="allcaps", description="Turn all-caps message filtering on or off.")
+    @app_commands.describe(enabled="Enable or disable all-caps filter")
+    async def allcaps_toggle(self, interaction: discord.Interaction, enabled: bool):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, allcaps_enabled=1 if enabled else 0)
+        await interaction.response.send_message(
+            f"All-caps filter is now **{'on' if enabled else 'off'}**.", ephemeral=True
+        )
+
+    @automod_group.command(name="allcaps_threshold", description="Set the % of uppercase characters that triggers the filter.")
+    @app_commands.describe(percent="Percentage threshold (50-100)", min_chars="Min alphabetic characters to check (default 10)")
+    async def allcaps_threshold(self, interaction: discord.Interaction, percent: int, min_chars: int = 10):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(
+            interaction.guild_id,
+            allcaps_threshold=max(50, min(100, percent)),
+            allcaps_min_length=max(5, min_chars),
+        )
+        await interaction.response.send_message(
+            f"All-caps threshold: **{max(50, min(100, percent))}%** (min {max(5, min_chars)} alpha chars).",
+            ephemeral=True,
+        )
+
+    # ── Slowmode ──────────────────────────────────────────────────────────────
+    @automod_group.command(name="slowmode", description="Turn bot-enforced per-channel slowmode on or off.")
+    @app_commands.describe(enabled="Enable or disable slowmode enforcement")
+    async def slowmode_toggle(self, interaction: discord.Interaction, enabled: bool):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, slowmode_enabled=1 if enabled else 0)
+        await interaction.response.send_message(
+            f"Bot slowmode is now **{'on' if enabled else 'off'}**.", ephemeral=True
+        )
+
+    @automod_group.command(name="slowmode_interval", description="Set slowmode interval in seconds per user per channel.")
+    @app_commands.describe(seconds="Seconds between messages (min 2)")
+    async def slowmode_interval(self, interaction: discord.Interaction, seconds: int):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, slowmode_seconds=max(2, seconds))
+        await interaction.response.send_message(
+            f"Slowmode interval set to **{max(2, seconds)}s** per user per channel.", ephemeral=True
+        )
+
+    @automod_group.command(name="slowmode_channel", description="Toggle a channel for bot-enforced slowmode. Empty list = all channels.")
+    async def slowmode_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        cfg = db.get_config(interaction.guild_id) or {}
+        current = [int(x) for x in _load_json_list(cfg.get("slowmode_channels")) if str(x).isdigit()]
+        if channel.id in current:
+            current.remove(channel.id)
+            msg = f"{channel.mention} removed from slowmode list."
+        else:
+            current.append(channel.id)
+            msg = f"{channel.mention} added to slowmode list."
+        db.upsert_config(interaction.guild_id, slowmode_channels=_dump_json_list(current))
+        if not current:
+            msg += " List is empty, so slowmode applies to **all channels**."
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    # ── Word Lists (separate group -- Discord 25-subcommand limit) ─────────
+    wordlist_group = app_commands.Group(
+        name="wordlist",
+        description="Manage word list filters for AutoMod.",
+    )
+
+    @wordlist_group.command(name="toggle", description="Turn word list filtering on or off.")
+    @app_commands.describe(enabled="Enable or disable word list filtering")
+    async def wordlist_toggle(self, interaction: discord.Interaction, enabled: bool):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        db.upsert_config(interaction.guild_id, wordlist_enabled=1 if enabled else 0)
+        await interaction.response.send_message(
+            f"Word list filter is now **{'on' if enabled else 'off'}**.", ephemeral=True
+        )
+
+    @wordlist_group.command(name="add", description="Add words to a word list (creates the list if new).")
+    @app_commands.describe(list_name="Name of the word list", words="Words to add, separated by commas")
+    async def wordlist_add(self, interaction: discord.Interaction, list_name: str, words: str):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        list_name = list_name.strip().lower()
+        new_words = [w.strip() for w in words.split(",") if w.strip()]
+        if not new_words:
+            return await interaction.response.send_message("Provide at least one word.", ephemeral=True)
+
+        existing = db.get_word_list(str(interaction.guild_id), list_name)
+        if existing:
+            current = existing["words"]
+            added = [w for w in new_words if w.lower() not in [x.lower() for x in current]]
+            current.extend(added)
+            db.update_word_list(str(interaction.guild_id), list_name, current)
+        else:
+            db.create_word_list(str(interaction.guild_id), list_name, new_words)
+            added = new_words
+
+        await interaction.response.send_message(
+            f"Added **{len(added)}** word(s) to list `{list_name}`.", ephemeral=True
+        )
+
+    @wordlist_group.command(name="remove", description="Remove words from a word list.")
+    @app_commands.describe(list_name="Name of the word list", words="Words to remove, separated by commas")
+    async def wordlist_remove(self, interaction: discord.Interaction, list_name: str, words: str):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        existing = db.get_word_list(str(interaction.guild_id), list_name.strip().lower())
+        if not existing:
+            return await interaction.response.send_message(f"List `{list_name}` not found.", ephemeral=True)
+        to_remove = {w.strip().lower() for w in words.split(",") if w.strip()}
+        updated = [w for w in existing["words"] if w.lower() not in to_remove]
+        db.update_word_list(str(interaction.guild_id), list_name.strip().lower(), updated)
+        await interaction.response.send_message(
+            f"Removed words from `{list_name}`. List now has **{len(updated)}** word(s).", ephemeral=True
+        )
+
+    @wordlist_group.command(name="view", description="View all word lists and their contents.")
+    async def wordlist_view(self, interaction: discord.Interaction):
+        cfg = db.get_config(interaction.guild_id) or {}
+        if not _is_staff(interaction.user, cfg):
+            return await interaction.response.send_message("Staff only.", ephemeral=True)
+        lists = db.get_all_word_lists(str(interaction.guild_id))
+        if not lists:
+            return await interaction.response.send_message("No word lists configured.", ephemeral=True)
+
+        embed = discord.Embed(
+            title="Word Lists",
+            color=discord.Color.blurple(),
+            description=f"Filter: **{'on' if cfg.get('wordlist_enabled') else 'off'}**",
+        )
+        for wl in lists:
+            preview = ", ".join(wl["words"][:20])
+            if len(wl["words"]) > 20:
+                preview += f" ...+{len(wl['words']) - 20} more"
+            embed.add_field(
+                name=f"{wl['list_name']} ({len(wl['words'])} words)",
+                value=preview or "*(empty)*",
+                inline=False,
+            )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @wordlist_group.command(name="delete", description="Delete an entire word list.")
+    @app_commands.describe(list_name="Name of the word list to delete")
+    async def wordlist_delete(self, interaction: discord.Interaction, list_name: str):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
+        deleted = db.delete_word_list(str(interaction.guild_id), list_name.strip().lower())
+        if deleted:
+            await interaction.response.send_message(f"Deleted word list `{list_name}`.", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"List `{list_name}` not found.", ephemeral=True)
+
+    # ── Immune (standalone -- keeps automod_group under 25) ──────────────
+    @app_commands.command(name="immune", description="Toggle a role as immune to all AutoMod filters.")
     async def immune(self, interaction: discord.Interaction, role: discord.Role):
         if not interaction.user.guild_permissions.manage_guild:
-            return await interaction.response.send_message("❌ Manage Server required.", ephemeral=True)
+            return await interaction.response.send_message("Manage Server required.", ephemeral=True)
         cfg = db.get_config(interaction.guild_id) or {}
         current = [int(x) for x in _load_json_list(cfg.get("automod_immune_roles")) if str(x).isdigit()]
         if role.id in current:
             current.remove(role.id)
-            msg = f"✅ {role.mention} is no longer immune to AutoMod."
+            msg = f"{role.mention} is no longer immune to AutoMod."
         else:
             current.append(role.id)
-            msg = f"✅ {role.mention} is now immune to AutoMod."
+            msg = f"{role.mention} is now immune to AutoMod."
         db.upsert_config(interaction.guild_id, automod_immune_roles=_dump_json_list(current))
         await interaction.response.send_message(msg, ephemeral=True)
 

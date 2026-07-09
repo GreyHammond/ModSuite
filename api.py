@@ -1,10 +1,11 @@
 """
-api.py — ModSuite v2.0 REST API
+api.py -- ModSuite v2.0 REST API
 Runs alongside bot.py in the same process (uvicorn as asyncio task).
 All endpoints are localhost-only; no auth required for v2.0.
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -30,20 +31,25 @@ def set_bot(bot) -> None:
 
 # ── App & CORS ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="ModSuite API", version="2.5.0")
+app = FastAPI(title="ModSuite API", version="3.0.0")
+
+# CORS origins: always allow localhost; add your server's public IP/domain via
+# CORS_ORIGINS in .env (comma-separated, e.g. "http://myserver.com,http://10.0.0.5:8000")
+_default_origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+_extra = os.getenv("CORS_ORIGINS", "")
+if _extra.strip():
+    _default_origins.extend([o.strip() for o in _extra.split(",") if o.strip()])
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://129.80.68.143",
-        "http://129.80.68.143:8000",
-    ],
+    allow_origins=_default_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -93,7 +99,7 @@ def _resolve_guild_id(guild_id: Optional[str]) -> str:
     guild = _get_guild()
     if guild:
         return str(guild.id)
-    _err(503, "Bot not ready — guild_id cannot be inferred yet.")
+    _err(503, "Bot not ready -- guild_id cannot be inferred yet.")
 
 
 def _member_name(guild, user_id: str) -> Optional[str]:
@@ -189,7 +195,7 @@ async def dashboard_activity(
     gid = _resolve_guild_id(guild_id)
     guild = _get_guild(gid)
 
-    # Merge recent warns + jails + mod_logs (tickets excluded — no actor info)
+    # Merge recent warns + jails + mod_logs (tickets excluded -- no actor info)
     with db.get_conn() as conn:
         rows = conn.execute(
             """
@@ -609,12 +615,12 @@ async def get_channels(guild_id: Optional[str] = None):
 # =============================================================================
 #
 # New endpoints:
-#   GET  /health                — bot uptime, latency, guilds, memory
-#   GET  /warns/trends?days=30  — warns count per day for last N days
-#   GET  /top-offenders?limit=5 — users with the most warns
-#   GET  /automod/summary       — quick AutoMod status (on/off + counts)
-#   GET  /config                — full guild_config as a dict
-#   PUT  /config                — bulk-update guild_config columns
+#   GET  /health                -- bot uptime, latency, guilds, memory
+#   GET  /warns/trends?days=30  -- warns count per day for last N days
+#   GET  /top-offenders?limit=5 -- users with the most warns
+#   GET  /automod/summary       -- quick AutoMod status (on/off + counts)
+#   GET  /config                -- full guild_config as a dict
+#   PUT  /config                -- bulk-update guild_config columns
 #
 # All read-only unless noted. PUT /config validates known columns only.
 
@@ -755,14 +761,14 @@ def _all_editable_keys() -> set:
     return keys
 
 
-# ── /config-schema — used by the FE to render the editor ─────────────────────
+# ── /config-schema -- used by the FE to render the editor ─────────────────────
 
 @app.get("/config-schema")
 async def get_config_schema():
     return {"sections": CONFIG_SECTIONS}
 
 
-# ── /config — get everything as a flat dict ──────────────────────────────────
+# ── /config -- get everything as a flat dict ──────────────────────────────────
 
 @app.get("/config")
 async def get_config_endpoint(guild_id: Optional[str] = None):
@@ -780,7 +786,7 @@ async def get_config_endpoint(guild_id: Optional[str] = None):
     return out
 
 
-# ── /config — bulk update (partial, only known keys) ─────────────────────────
+# ── /config -- bulk update (partial, only known keys) ─────────────────────────
 
 class ConfigPatch(BaseModel):
     values: dict
@@ -806,7 +812,7 @@ async def update_config_endpoint(body: ConfigPatch, guild_id: Optional[str] = No
     return {"updated": list(updates.keys()), "count": len(updates)}
 
 
-# ── /health — bot process metrics ────────────────────────────────────────────
+# ── /health -- bot process metrics ────────────────────────────────────────────
 
 @app.get("/health")
 async def get_health():
@@ -851,7 +857,7 @@ async def get_health():
     }
 
 
-# ── /warns/trends — warns per day for last N days ────────────────────────────
+# ── /warns/trends -- warns per day for last N days ────────────────────────────
 
 @app.get("/warns/trends")
 async def get_warns_trends(days: int = 30, guild_id: Optional[str] = None):
@@ -883,7 +889,7 @@ async def get_warns_trends(days: int = 30, guild_id: Optional[str] = None):
     return out
 
 
-# ── /top-offenders — users with most warns ───────────────────────────────────
+# ── /top-offenders -- users with most warns ───────────────────────────────────
 
 @app.get("/top-offenders")
 async def get_top_offenders(limit: int = 5, guild_id: Optional[str] = None):
@@ -922,7 +928,122 @@ async def get_top_offenders(limit: int = 5, guild_id: Optional[str] = None):
     return out
 
 
-# ── /automod/summary — quick AutoMod dashboard tile ──────────────────────────
+# ── /automod/summary -- quick AutoMod dashboard tile ──────────────────────────
+
+# ── Violations (v3.0) ─────────────────────────────────────────────────────────
+
+@app.get("/violations/summary")
+async def get_violations_summary(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    summary = db.get_violations_summary(int(gid), limit=10)
+    guild = _get_guild(gid)
+    out = []
+    for row in summary:
+        uid = str(row["user_id"])
+        username = _member_name(guild, uid)
+        out.append({
+            "user_id": uid,
+            "username": username,
+            "count": row["cnt"],
+        })
+    return out
+
+
+@app.get("/violations/{user_id}")
+async def get_user_violations(user_id: str, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    cfg = db.get_config(int(gid)) or {}
+    window = cfg.get("violation_window_minutes") or 60
+    threshold = cfg.get("violation_jail_threshold") or 5
+    active_count = db.get_all_violation_count(int(gid), int(user_id), window_minutes=window)
+    recent = db.get_recent_violations(int(gid), int(user_id), limit=25)
+    return {
+        "user_id": user_id,
+        "active_count": active_count,
+        "threshold": threshold,
+        "window_minutes": window,
+        "recent": [
+            {
+                "id": v["id"],
+                "name": v["name"],
+                "trigger": v["trigger"],
+                "created_at": _fmt_ts(v.get("created_at")),
+            }
+            for v in recent
+        ],
+    }
+
+
+@app.get("/timed-bans")
+async def get_timed_bans(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM timed_bans WHERE guild_id = ? ORDER BY unban_at",
+            (int(gid),),
+        ).fetchall()
+    guild = _get_guild(gid)
+    out = []
+    for row in rows:
+        r = dict(row)
+        uid = str(r["user_id"])
+        r["username"] = _member_name(guild, uid)
+        r["unban_at"] = _fmt_ts(r.get("unban_at"))
+        out.append(r)
+    return out
+
+
+@app.get("/word-lists")
+async def get_word_lists(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    return db.get_all_word_lists(gid)
+
+
+@app.get("/profiles")
+async def get_profiles(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    db.seed_profiles(gid)
+    profiles = db.get_all_profiles(gid)
+    cfg = db.get_config(int(gid)) or {}
+    active = cfg.get("active_profile") or "normal"
+    return {
+        "active": active,
+        "profiles": [
+            {
+                "name": p["name"],
+                "built_in": bool(p.get("built_in")),
+                "overrides": p.get("overrides", {}),
+                "is_active": p["name"] == active,
+            }
+            for p in profiles
+        ],
+    }
+
+
+class ProfileSwitch(BaseModel):
+    name: str
+
+
+@app.put("/profiles/active")
+async def switch_profile(body: ProfileSwitch, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    name = body.name.strip().lower()
+    db.seed_profiles(gid)
+    profile = db.get_profile(gid, name)
+    if profile is None:
+        _err(404, f"Profile '{name}' not found.")
+    db.upsert_config(int(gid), active_profile=name)
+    db.add_mod_log(
+        guild_id=gid,
+        action="PROFILE_SWITCH",
+        target_id="",
+        target_username="",
+        actor_id="",
+        actor_username="Dashboard",
+        reason=f"Profile switched to {name}",
+    )
+    return {"active": name}
+
 
 @app.get("/automod/summary")
 async def get_automod_summary(guild_id: Optional[str] = None):
@@ -942,21 +1063,36 @@ async def get_automod_summary(guild_id: Optional[str] = None):
         "spam":         bool(cfg.get("spam_enabled")),
         "links":        bool(cfg.get("link_filter_enabled")),
         "invites":      bool(cfg.get("invite_filter_enabled")),
+        "word_lists":   bool(cfg.get("wordlist_enabled")),
+        "antiphish":    bool(cfg.get("antiphish_enabled", 1)),
+        "slowmode":     bool(cfg.get("slowmode_enabled")),
+        "max_message_length": cfg.get("max_message_length") or 0,
+        "min_message_length": cfg.get("min_message_length") or 0,
+        "slowmode_seconds":   cfg.get("slowmode_seconds") or 5,
         "spam_action":  cfg.get("spam_action") or "mute",
         "link_mode":    cfg.get("link_mode") or "whitelist",
         "immune_count": immune_count,
+        "violation_threshold": cfg.get("violation_jail_threshold") or 5,
+        "violation_window":    cfg.get("violation_window_minutes") or 60,
+        "role_persist":        bool(cfg.get("role_persist_enabled", 1)),
+        "active_profile":      cfg.get("active_profile") or "normal",
+        "allcaps":             bool(cfg.get("allcaps_enabled")),
+        "allcaps_threshold":   cfg.get("allcaps_threshold") or 70,
+        "name_filter":         bool(cfg.get("name_filter_enabled")),
+        "name_filter_action":  cfg.get("name_filter_action") or "log",
+        "verify_gate":         bool(cfg.get("verify_gate_enabled")),
     }
 # =============================================================================
 # ── Wave 2 additions ── (append to api.py before the static-mount block) ─────
 # =============================================================================
 #
 # New endpoints:
-#   POST /warns                  — queue add-warn action for the bot to execute
-#   PUT  /notes/{note_id}        — edit a note's content
-#   GET  /users/search?q=NAME    — quick member lookup for filters
+#   POST /warns                  -- queue add-warn action for the bot to execute
+#   PUT  /notes/{note_id}        -- edit a note's content
+#   GET  /users/search?q=NAME    -- quick member lookup for filters
 
 
-# ── POST /warns — queue add-warn action ──────────────────────────────────────
+# ── POST /warns -- queue add-warn action ──────────────────────────────────────
 
 class WarnCreate(BaseModel):
     user_id: str
@@ -984,7 +1120,7 @@ async def create_warn(body: WarnCreate, guild_id: Optional[str] = None):
     return {"queued": True, "action_id": action_id}
 
 
-# ── PUT /notes/{note_id} — edit note content ─────────────────────────────────
+# ── PUT /notes/{note_id} -- edit note content ─────────────────────────────────
 
 class NoteUpdate(BaseModel):
     content: str
@@ -1011,7 +1147,7 @@ async def update_note(note_id: int, body: NoteUpdate, guild_id: Optional[str] = 
     return {"updated": True, "note_id": note_id}
 
 
-# ── GET /users/search?q=NAME — member lookup ─────────────────────────────────
+# ── GET /users/search?q=NAME -- member lookup ─────────────────────────────────
 
 @app.get("/users/search")
 async def search_users(q: str = "", guild_id: Optional[str] = None, limit: int = 20):
@@ -1043,10 +1179,10 @@ async def search_users(q: str = "", guild_id: Optional[str] = None, limit: int =
 # =============================================================================
 #
 # New endpoints:
-#   GET  /tickets/{ticket_id}          — full ticket detail
-#   GET  /tickets/{ticket_id}/transcript — messages list (for inline viewer)
-#   POST /tickets/{ticket_id}/reply    — queue reply action
-#   POST /tickets/{ticket_id}/close    — queue close action
+#   GET  /tickets/{ticket_id}          -- full ticket detail
+#   GET  /tickets/{ticket_id}/transcript -- messages list (for inline viewer)
+#   POST /tickets/{ticket_id}/reply    -- queue reply action
+#   POST /tickets/{ticket_id}/close    -- queue close action
 
 
 def _fetch_ticket(gid, ticket_id):
@@ -1059,7 +1195,7 @@ def _fetch_ticket(gid, ticket_id):
     return dict(row) if row else None
 
 
-# ── GET /tickets/{ticket_id} — full ticket detail ────────────────────────────
+# ── GET /tickets/{ticket_id} -- full ticket detail ────────────────────────────
 
 @app.get("/tickets/{ticket_id}")
 async def get_ticket(ticket_id: int, guild_id: Optional[str] = None):
@@ -1089,7 +1225,7 @@ async def get_ticket(ticket_id: int, guild_id: Optional[str] = None):
     }
 
 
-# ── GET /tickets/{ticket_id}/transcript — full messages list ─────────────────
+# ── GET /tickets/{ticket_id}/transcript -- full messages list ─────────────────
 
 @app.get("/tickets/{ticket_id}/transcript")
 async def get_ticket_transcript(ticket_id: int, guild_id: Optional[str] = None):
@@ -1124,7 +1260,7 @@ async def get_ticket_transcript(ticket_id: int, guild_id: Optional[str] = None):
     }
 
 
-# ── POST /tickets/{ticket_id}/reply — queue reply action ─────────────────────
+# ── POST /tickets/{ticket_id}/reply -- queue reply action ─────────────────────
 
 class TicketReply(BaseModel):
     message: str
@@ -1154,7 +1290,7 @@ async def reply_to_ticket(ticket_id: int, body: TicketReply, guild_id: Optional[
     return {"queued": True, "action_id": action_id}
 
 
-# ── POST /tickets/{ticket_id}/close — queue close action ─────────────────────
+# ── POST /tickets/{ticket_id}/close -- queue close action ─────────────────────
 
 @app.post("/tickets/{ticket_id}/close")
 async def close_ticket(ticket_id: int, guild_id: Optional[str] = None):

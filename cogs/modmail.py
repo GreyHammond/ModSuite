@@ -260,7 +260,7 @@ class ModMail(commands.Cog):
 
         # Header embed in ticket channel
         header = discord.Embed(
-            title=f"📬 New ModMail — {user.display_name}",
+            title=f"📬 New ModMail -- {user.display_name}",
             color=discord.Color.gold(),
             timestamp=datetime.utcnow(),
         )
@@ -290,7 +290,7 @@ class ModMail(commands.Cog):
         if mm_ch:
             pings = " ".join(r.mention for r in [owner_role, mod_role] if r)
             notif = discord.Embed(
-                description=f"New ticket opened by {user.mention} — see {ticket_ch.mention}",
+                description=f"New ticket opened by {user.mention} -- see {ticket_ch.mention}",
                 color=discord.Color.gold(),
             )
             await mm_ch.send(content=pings, embed=notif)

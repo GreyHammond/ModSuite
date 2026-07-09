@@ -197,8 +197,8 @@ function renderRows() {
         return `<tr data-idx="${rowIdx}">
           <td><span class="badge badge-${action}">${cap(action)}</span></td>
           <td>${esc(log.username || log.user_name || log.target_username || `User ${log.user_id || log.target_id || '?'}`)}</td>
-          <td class="td-reason" title="${esc(log.reason || '')}">${esc(log.reason || '—')}</td>
-          <td class="td-by">${esc(log.mod_name || log.by || log.actor_username || '—')}</td>
+          <td class="td-reason" title="${esc(log.reason || '')}">${esc(log.reason || '--')}</td>
+          <td class="td-by">${esc(log.mod_name || log.by || log.actor_username || '--')}</td>
           <td class="td-when">${fmtDate(log.created_at || log.timestamp)}</td>
         </tr>`;
       }).join('');
@@ -234,11 +234,11 @@ function renderRows() {
 
 function detailHTML(log) {
   const items = [
-    ['Action ID',      log.id  ?? '—'],
-    ['Target ID',      log.target_id ?? log.user_id ?? '—'],
-    ['Actor ID',       log.actor_id  ?? log.mod_id  ?? '—'],
-    ['Reason (full)',  log.reason ?? '—'],
-    ['Timestamp',      log.created_at ?? log.timestamp ?? '—'],
+    ['Action ID',      log.id  ?? '--'],
+    ['Target ID',      log.target_id ?? log.user_id ?? '--'],
+    ['Actor ID',       log.actor_id  ?? log.mod_id  ?? '--'],
+    ['Reason (full)',  log.reason ?? '--'],
+    ['Timestamp',      log.created_at ?? log.timestamp ?? '--'],
   ];
   return `<div class="ml-detail-body">
     ${items.map(([label, value]) => `
@@ -313,7 +313,7 @@ function csvCell(v) {
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function fmtDate(d) {
-  if (!d) return '—';
+  if (!d) return '--';
   const dt = new Date(d);
   return dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
          dt.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});

@@ -1,7 +1,7 @@
 """
-verify.py — Age verification commands
-/verify @user   — Grant the Verified 18+ role (Mod + Admin)
-/unverify @user — Remove the Verified 18+ role (Mod + Admin)
+verify.py -- Age verification commands
+/verify @user   -- Grant the Verified 18+ role (Mod + Admin)
+/unverify @user -- Remove the Verified 18+ role (Mod + Admin)
 
 Logs both actions to #mod-log including who performed the action.
 The Verified 18+ role is looked up by name on first use and cached
@@ -32,7 +32,7 @@ async def _get_verified_role(guild: discord.Guild) -> discord.Role | None:
         if role:
             return role
 
-    # Not cached — search by name
+    # Not cached -- search by name
     role = discord.utils.get(guild.roles, name=VERIFIED_ROLE_NAME)
     if role:
         db.upsert_config(guild.id, verified_role_id=str(role.id))

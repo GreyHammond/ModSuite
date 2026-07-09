@@ -53,9 +53,11 @@ class Moderation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.unmute_loop.start()
+        self.unban_loop.start()
 
     def cog_unload(self):
         self.unmute_loop.cancel()
+        self.unban_loop.cancel()
 
     @app_commands.command(name="kick", description="Kick a member from the server.")
     @app_commands.describe(member="Member to kick", reason="Optional reason")
@@ -66,7 +68,7 @@ class Moderation(commands.Cog):
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
-            await member.kick(reason=f"{interaction.user} — {reason}")
+            await member.kick(reason=f"{interaction.user} -- {reason}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot kick that member.", ephemeral=True)
         db.add_mod_log(
@@ -112,13 +114,13 @@ class Moderation(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 pass
             try:
-                await user.ban(reason=f"{interaction.user} — {reason}", delete_message_days=max(0, min(7, delete_days)))
+                await user.ban(reason=f"{interaction.user} -- {reason}", delete_message_days=max(0, min(7, delete_days)))
             except discord.Forbidden:
                 return await interaction.response.send_message("❌ Cannot ban that member.", ephemeral=True)
         else:
             # Pre-emptive ban by user ID
             try:
-                await interaction.guild.ban(user, reason=f"{interaction.user} — {reason}", delete_message_days=max(0, min(7, delete_days)))
+                await interaction.guild.ban(user, reason=f"{interaction.user} -- {reason}", delete_message_days=max(0, min(7, delete_days)))
             except discord.Forbidden:
                 return await interaction.response.send_message("❌ Cannot ban that user.", ephemeral=True)
             except discord.NotFound:
@@ -152,7 +154,7 @@ class Moderation(commands.Cog):
         try:
             uid  = int(user_id)
             user = await self.bot.fetch_user(uid)
-            await interaction.guild.unban(user, reason=f"{interaction.user} — {reason}")
+            await interaction.guild.unban(user, reason=f"{interaction.user} -- {reason}")
         except Exception:
             return await interaction.response.send_message("❌ User not found or not banned.", ephemeral=True)
         db.add_mod_log(
@@ -171,6 +173,79 @@ class Moderation(commands.Cog):
         await _post_modlog(interaction.guild, cfg, embed)
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(name="tempban", description="Temporarily ban a member. Auto-unbans after the duration.")
+    @app_commands.describe(
+        member="Member to ban", duration="Duration: 1h, 1d, 7d, 30d",
+        reason="Reason for the ban", delete_days="Days of messages to delete (0-7)",
+    )
+    async def tempban(self, interaction: discord.Interaction, member: str,
+                      duration: str, reason: str = "No reason provided.", delete_days: int = 0):
+        cfg = db.get_config(interaction.guild_id)
+        if not _is_staff(interaction.user, cfg):
+            return await interaction.response.send_message("Staff only.", ephemeral=True)
+
+        td = parse_duration(duration)
+        if td is None:
+            return await interaction.response.send_message(
+                "Invalid duration. Use formats like 1h, 1d, 7d, 30d.", ephemeral=True
+            )
+
+        from utils import resolve_user
+        try:
+            user, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"{e}", ephemeral=True)
+
+        if is_member:
+            if not can_moderate(interaction.user, user, cfg or {}):
+                return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+            try:
+                text = _fmt(
+                    get_bot_message(db, str(interaction.guild_id), "ban_dm"),
+                    user=user.mention, reason=f"{reason} (temp: {_fmt_td(td)})",
+                )
+                await user.send(embed=discord.Embed(description=text, color=discord.Color.red()))
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            try:
+                await user.ban(reason=f"{interaction.user} -- tempban {_fmt_td(td)}: {reason}",
+                               delete_message_days=max(0, min(7, delete_days)))
+            except discord.Forbidden:
+                return await interaction.response.send_message("Cannot ban that member.", ephemeral=True)
+        else:
+            try:
+                await interaction.guild.ban(user, reason=f"{interaction.user} -- tempban {_fmt_td(td)}: {reason}",
+                                            delete_message_days=max(0, min(7, delete_days)))
+            except discord.Forbidden:
+                return await interaction.response.send_message("Cannot ban that user.", ephemeral=True)
+            except discord.NotFound:
+                return await interaction.response.send_message("User not found.", ephemeral=True)
+
+        unban_at = datetime.now(timezone.utc) + td
+        db.add_timed_ban(interaction.guild_id, user.id, unban_at, reason, interaction.user.display_name)
+
+        # Clear saved roles so unbanned user gets a fresh start
+        db.clear_member_roles(str(interaction.guild_id), str(user.id))
+
+        db.add_mod_log(
+            guild_id=str(interaction.guild_id),
+            action="TEMPBAN",
+            target_id=str(user.id),
+            target_username=str(user),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=f"{reason} (duration: {_fmt_td(td)})",
+        )
+
+        embed = discord.Embed(title="🔨 Member Temp-Banned", color=discord.Color.red(), timestamp=datetime.utcnow())
+        embed.add_field(name="User",      value=f"{user} (`{user.id}`)", inline=True)
+        embed.add_field(name="Banned by", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Duration",  value=_fmt_td(td),              inline=True)
+        embed.add_field(name="Reason",    value=reason,                   inline=False)
+        embed.add_field(name="Auto-unban", value=f"<t:{int(unban_at.timestamp())}:F>", inline=False)
+        await _post_modlog(interaction.guild, cfg, embed)
+        await interaction.response.send_message(embed=embed)
+
     @app_commands.command(name="mute", description="Timeout a member. Duration: 10m, 2h, 1d (default: 30 days).")
     @app_commands.describe(member="Member to mute", duration="e.g. 10m, 2h30m, 1d", reason="Optional reason")
     async def mute(self, interaction: discord.Interaction, member: discord.Member,
@@ -186,7 +261,7 @@ class Moderation(commands.Cog):
         discord_td = min(td, timedelta(days=28))
         until = datetime.now(timezone.utc) + td
         try:
-            await member.timeout(datetime.now(timezone.utc) + discord_td, reason=f"{interaction.user} — {reason}")
+            await member.timeout(datetime.now(timezone.utc) + discord_td, reason=f"{interaction.user} -- {reason}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot mute that member.", ephemeral=True)
         db.add_mute(interaction.guild_id, member.id, until, reason)
@@ -226,7 +301,7 @@ class Moderation(commands.Cog):
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
-            await member.timeout(None, reason=f"{interaction.user} — {reason}")
+            await member.timeout(None, reason=f"{interaction.user} -- {reason}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot unmute that member.", ephemeral=True)
         db.remove_mute(interaction.guild_id, member.id)
@@ -277,6 +352,41 @@ class Moderation(commands.Cog):
                 embed = discord.Embed(title="🔊 Auto-Unmuted", color=discord.Color.green(), timestamp=now)
                 embed.add_field(name="User", value=f"<@{row['user_id']}>", inline=True)
                 await _post_modlog(guild, cfg, embed)
+
+    @tasks.loop(minutes=1)
+    async def unban_loop(self):
+        now = datetime.now(timezone.utc)
+        expired = db.get_expired_bans(now)
+        for row in expired:
+            guild = self.bot.get_guild(row["guild_id"])
+            if guild is None:
+                db.remove_timed_ban(row["guild_id"], row["user_id"])
+                continue
+            try:
+                user = await self.bot.fetch_user(row["user_id"])
+                await guild.unban(user, reason="Auto-unban: tempban duration expired")
+            except Exception:
+                pass
+            db.remove_timed_ban(row["guild_id"], row["user_id"])
+            db.add_mod_log(
+                guild_id=str(row["guild_id"]),
+                action="UNBAN",
+                target_id=str(row["user_id"]),
+                target_username="",
+                actor_id=str(self.bot.user.id),
+                actor_username="ModSuite (auto)",
+                reason="Tempban duration expired",
+            )
+            cfg = db.get_config(row["guild_id"])
+            if cfg:
+                embed = discord.Embed(title="✅ Auto-Unbanned", color=discord.Color.green(), timestamp=now)
+                embed.add_field(name="User", value=f"<@{row['user_id']}>", inline=True)
+                embed.add_field(name="Reason", value="Tempban expired", inline=True)
+                await _post_modlog(guild, cfg, embed)
+
+    @unban_loop.before_loop
+    async def before_unban_loop(self):
+        await self.bot.wait_until_ready()
 
     @app_commands.command(name="softban", description="[Mod] Softban a member: saves roles, bans to wipe messages, unbans, restores roles on rejoin.")
     @app_commands.describe(member="Member to softban", reason="Reason for the softban")
@@ -336,13 +446,31 @@ class Moderation(commands.Cog):
             ephemeral=True,
         )
 
+    # ── Role persistence: save on leave ─────────────────────────────────────
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        cfg = db.get_config(member.guild.id)
+        if cfg is None or not cfg.get("setup_complete"):
+            return
+        if not cfg.get("role_persist_enabled", 1):
+            return
+
+        # Save roles (skip @everyone and managed/bot roles)
+        role_ids = [
+            r.id for r in member.roles
+            if r.id != member.guild.default_role.id and not r.managed
+        ]
+        if role_ids:
+            db.save_member_roles(str(member.guild.id), str(member.id), role_ids)
+
+    # ── Role persistence: restore on rejoin ──────────────────────────────────
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         cfg = db.get_config(member.guild.id)
         if cfg is None or not cfg.get("setup_complete"):
             return
 
-        # ── Softban role restore ──────────────────────────────────────────────
+        # ── Softban role restore (legacy, takes priority) ─────────────────────
         saved_role_ids = db.get_softban_roles(str(member.guild.id), str(member.id))
         if saved_role_ids:
             roles_to_restore = [
@@ -357,8 +485,8 @@ class Moderation(commands.Cog):
                     print(f"[softban] Failed to restore roles for {member.id}: {e}")
 
             db.clear_softban_roles(str(member.guild.id), str(member.id))
+            db.clear_member_roles(str(member.guild.id), str(member.id))
 
-            # Notify mod-log
             restored_mentions = " ".join(f"<@&{r.id}>" for r in roles_to_restore)
             log_embed = discord.Embed(
                 title="🔄 Softbanned Member Rejoined",
@@ -369,6 +497,70 @@ class Moderation(commands.Cog):
             log_embed.add_field(name="Roles Restored", value=restored_mentions or "None", inline=False)
             log_embed.set_footer(text="ModSuite · Hammond Digital Studios")
             await _post_modlog(member.guild, cfg, log_embed)
+
+        # ── General role persistence restore ──────────────────────────────────
+        elif cfg.get("role_persist_enabled", 1):
+            # Check if user was banned (ban = fresh start, no restore)
+            # Look for a recent BAN entry in mod_logs with no subsequent UNBAN
+            with db.get_conn() as conn:
+                last_ban = conn.execute(
+                    """SELECT id FROM mod_logs
+                       WHERE guild_id = ? AND target_id = ? AND action = 'BAN'
+                       ORDER BY id DESC LIMIT 1""",
+                    (str(member.guild.id), str(member.id)),
+                ).fetchone()
+                last_unban = conn.execute(
+                    """SELECT id FROM mod_logs
+                       WHERE guild_id = ? AND target_id = ? AND action = 'UNBAN'
+                       ORDER BY id DESC LIMIT 1""",
+                    (str(member.guild.id), str(member.id)),
+                ).fetchone()
+
+            was_banned = (
+                last_ban is not None
+                and (last_unban is None or last_unban["id"] < last_ban["id"])
+            )
+
+            if was_banned:
+                # Banned users get a fresh start -- clear saved roles, don't restore
+                db.clear_member_roles(str(member.guild.id), str(member.id))
+            else:
+                # Restore roles for kicks, voluntary leaves, etc.
+                saved = db.get_member_roles(str(member.guild.id), str(member.id))
+                if saved:
+                    roles_to_restore = [
+                        member.guild.get_role(rid)
+                        for rid in saved
+                        if member.guild.get_role(rid) is not None
+                    ]
+                    if roles_to_restore:
+                        try:
+                            await member.add_roles(
+                                *roles_to_restore,
+                                reason="Role persistence: restored on rejoin",
+                            )
+                        except Exception as e:
+                            print(f"[role_persist] Failed to restore roles for {member.id}: {e}")
+
+                        log_embed = discord.Embed(
+                            title="🔄 Roles Restored on Rejoin",
+                            color=0x57F287,
+                            timestamp=datetime.utcnow(),
+                        )
+                        log_embed.add_field(
+                            name="User",
+                            value=f"{member} (`{member.id}`)",
+                            inline=False,
+                        )
+                        log_embed.add_field(
+                            name="Roles Restored",
+                            value=" ".join(f"<@&{r.id}>" for r in roles_to_restore) or "None",
+                            inline=False,
+                        )
+                        log_embed.set_footer(text="ModSuite · Hammond Digital Studios")
+                        await _post_modlog(member.guild, cfg, log_embed)
+
+                    db.clear_member_roles(str(member.guild.id), str(member.id))
 
         # ── Welcome message ───────────────────────────────────────────────────
         text = _fmt(

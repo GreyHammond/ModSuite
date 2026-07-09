@@ -1,7 +1,7 @@
 """
-cogs/streamer.py — Streamer management system.
-- /streamer add/remove/edit — manage streamers (mod+)
-- /streamer links add/remove/list — manage links (streamer self-service + mod)
+cogs/streamer.py -- Streamer management system.
+- /streamer add/remove/edit -- manage streamers (mod+)
+- /streamer links add/remove/list -- manage links (streamer self-service + mod)
 - Twitch polling loop for go-live/offline detection
 - Auto-creates personal channel with pinned info card
 - Posts to #live-now with @Stream Alerts ping
@@ -23,14 +23,14 @@ except ImportError:
 import database as db
 
 BRAND_FOOTER = "ModSuite · Hammond Digital Studios"
-LIVE_COLOR = 0xE74C3C       # Red — live
-OFFLINE_COLOR = 0x95A5A6    # Grey — offline
-INFO_COLOR = 0xD4A843       # Gold — info card
+LIVE_COLOR = 0xE74C3C       # Red -- live
+OFFLINE_COLOR = 0x95A5A6    # Grey -- offline
+INFO_COLOR = 0xD4A843       # Gold -- info card
 CATEGORY_NAME = "Streamers"
 LIVE_CHANNEL_NAME = "live-now"
 ALERTS_ROLE_NAME = "Stream Alerts"
 
-# Twitch API config — set in .env
+# Twitch API config -- set in .env
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET", "")
 
@@ -137,7 +137,7 @@ def _build_live_embed(streamer: dict, links: list[dict],
     game  = stream_data.get("game_name", "")
 
     embed = discord.Embed(
-        title=f"🔴 LIVE — {streamer['twitch_username']}",
+        title=f"🔴 LIVE -- {streamer['twitch_username']}",
         color=LIVE_COLOR,
     )
     embed.add_field(name="📺 Title", value=title, inline=False)
@@ -195,7 +195,7 @@ async def _get_or_create_live_channel(
         LIVE_CHANNEL_NAME,
         category=category,
         overwrites=overwrites,
-        topic="Live stream notifications — read only",
+        topic="Live stream notifications -- read only",
     )
 
 
@@ -251,7 +251,7 @@ class Streamer(commands.Cog):
         if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET:
             self.poll_twitch.start()
         else:
-            print("[streamer] TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET not set — polling disabled")
+            print("[streamer] TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET not set -- polling disabled")
 
     def cog_unload(self):
         self.poll_twitch.cancel()
@@ -337,7 +337,7 @@ class Streamer(commands.Cog):
 
     @streamer_group.command(
         name="add",
-        description="[Mod] Add a streamer — creates their channel and assigns the role.",
+        description="[Mod] Add a streamer -- creates their channel and assigns the role.",
     )
     @app_commands.describe(
         member="The member to add as a streamer",
@@ -432,7 +432,7 @@ class Streamer(commands.Cog):
 
     @streamer_group.command(
         name="remove",
-        description="[Mod] Remove a streamer — deletes their channel and removes the role.",
+        description="[Mod] Remove a streamer -- deletes their channel and removes the role.",
     )
     @app_commands.describe(member="The streamer to remove")
     async def streamer_remove(

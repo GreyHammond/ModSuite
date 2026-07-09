@@ -1,5 +1,5 @@
 /**
- * configuration.js — Wave 1
+ * configuration.js -- Wave 1
  *
  * Sectioned editor driven by /config-schema.
  * Also keeps the original Bot Messages editor + Post-as-Bot panels.

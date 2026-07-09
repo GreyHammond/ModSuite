@@ -1,5 +1,5 @@
 """
-Mod Panel — persistent + ephemeral context-aware UI.
+Mod Panel -- persistent + ephemeral context-aware UI.
 All actions call the same underlying functions as slash commands.
 """
 import discord
@@ -39,7 +39,7 @@ def _detect_context(channel_id: int) -> str:
 
 class MuteModal(discord.ui.Modal, title="Mute Member"):
     username = discord.ui.TextInput(label="Username or ID", placeholder="hammond")
-    duration = discord.ui.TextInput(label="Duration (10m / 2h / 1d — blank = 30 days)", required=False)
+    duration = discord.ui.TextInput(label="Duration (10m / 2h / 1d -- blank = 30 days)", required=False)
     reason   = discord.ui.TextInput(label="Reason", required=False, style=discord.TextStyle.short)
 
     def __init__(self, bot, guild):
@@ -69,7 +69,7 @@ class MuteModal(discord.ui.Modal, title="Mute Member"):
 
         try:
             await member.timeout(datetime.now(timezone.utc) + discord_td,
-                                 reason=f"{interaction.user} — {self.reason.value or 'No reason'}")
+                                 reason=f"{interaction.user} -- {self.reason.value or 'No reason'}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot mute that member.", ephemeral=True)
 
@@ -104,7 +104,7 @@ class KickModal(discord.ui.Modal, title="Kick Member"):
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
-            await member.kick(reason=f"{interaction.user} — {self.reason.value or 'No reason'}")
+            await member.kick(reason=f"{interaction.user} -- {self.reason.value or 'No reason'}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot kick that member.", ephemeral=True)
 
@@ -136,7 +136,7 @@ class BanModal(discord.ui.Modal, title="Ban Member"):
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
-            await member.ban(reason=f"{interaction.user} — {self.reason.value or 'No reason'}")
+            await member.ban(reason=f"{interaction.user} -- {self.reason.value or 'No reason'}")
         except discord.Forbidden:
             return await interaction.response.send_message("❌ Cannot ban that member.", ephemeral=True)
 
@@ -179,6 +179,63 @@ class WarnModal(discord.ui.Modal, title="Warn Member"):
         if escalation:
             embed.add_field(name="Auto Action", value=f"User was **{escalation}** automatically", inline=False)
         embed.set_footer(text=f"Warn ID: {warn_id}")
+        await mod_log(self.guild, cfg, embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class TempBanModal(discord.ui.Modal, title="Temp-Ban Member"):
+    username = discord.ui.TextInput(label="Username or ID")
+    duration = discord.ui.TextInput(label="Duration (e.g. 1d, 7d, 30d)", placeholder="7d")
+    reason   = discord.ui.TextInput(label="Reason", required=False)
+
+    def __init__(self, bot, guild):
+        super().__init__()
+        self.bot   = bot
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        from .moderation import parse_duration, _fmt_td
+        cfg    = db.get_config(self.guild.id)
+        member = self.guild.get_member_named(self.username.value.strip())
+        if member is None:
+            try:
+                member = await self.guild.fetch_member(int(self.username.value.strip()))
+            except Exception:
+                return await interaction.response.send_message("Member not found.", ephemeral=True)
+        if not can_moderate(interaction.user, member, cfg or {}):
+            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+
+        td = parse_duration(self.duration.value.strip())
+        if td is None:
+            return await interaction.response.send_message(
+                "Invalid duration. Use formats like 1d, 7d, 30d.", ephemeral=True
+            )
+
+        reason = self.reason.value or "No reason"
+        unban_at = datetime.now(timezone.utc) + td
+
+        try:
+            await member.ban(reason=f"{interaction.user} -- tempban {_fmt_td(td)}: {reason}")
+        except discord.Forbidden:
+            return await interaction.response.send_message("Cannot ban that member.", ephemeral=True)
+
+        db.add_timed_ban(self.guild.id, member.id, unban_at, reason, interaction.user.display_name)
+        db.clear_member_roles(str(self.guild.id), str(member.id))
+        db.add_mod_log(
+            guild_id=str(self.guild.id),
+            action="TEMPBAN",
+            target_id=str(member.id),
+            target_username=str(member),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=f"{reason} (duration: {_fmt_td(td)})",
+        )
+
+        embed = discord.Embed(title="🔨 Member Temp-Banned", color=discord.Color.red(), timestamp=datetime.utcnow())
+        embed.add_field(name="User",      value=f"{member} (`{member.id}`)", inline=True)
+        embed.add_field(name="Banned by", value=interaction.user.mention,    inline=True)
+        embed.add_field(name="Duration",  value=_fmt_td(td),                 inline=True)
+        embed.add_field(name="Reason",    value=reason,                      inline=False)
         await mod_log(self.guild, cfg, embed)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -276,7 +333,7 @@ class ModMailReplyModal(discord.ui.Modal, title="Reply to ModMail User"):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class GeneralPanelView(discord.ui.View):
-    """General context — full mod toolkit."""
+    """General context -- full mod toolkit."""
 
     def __init__(self, bot, persistent: bool = False):
         super().__init__(timeout=None if persistent else 300)
@@ -314,19 +371,24 @@ class GeneralPanelView(discord.ui.View):
         if not await self._check_staff(interaction): return
         await interaction.response.send_modal(JailModal(self.bot, interaction.guild))
 
-    @discord.ui.button(label="📋 History", style=discord.ButtonStyle.secondary, row=1, custom_id="panel_history")
+    @discord.ui.button(label="⏳ TempBan", style=discord.ButtonStyle.danger, row=1, custom_id="panel_tempban")
+    async def btn_tempban(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self._check_staff(interaction): return
+        await interaction.response.send_modal(TempBanModal(self.bot, interaction.guild))
+
+    @discord.ui.button(label="📋 History", style=discord.ButtonStyle.secondary, row=2, custom_id="panel_history")
     async def btn_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_staff(interaction): return
         await interaction.response.send_message(
             "Use `/history @user` to view their moderation history.", ephemeral=True
         )
 
-    @discord.ui.button(label="🗑️ Purge", style=discord.ButtonStyle.secondary, row=1, custom_id="panel_purge")
+    @discord.ui.button(label="🗑️ Purge", style=discord.ButtonStyle.secondary, row=2, custom_id="panel_purge")
     async def btn_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_staff(interaction): return
         await interaction.response.send_modal(PurgeModal(interaction.channel))
 
-    @discord.ui.button(label="🚨 Lockdown", style=discord.ButtonStyle.danger, row=2, custom_id="panel_lockdown")
+    @discord.ui.button(label="🚨 Lockdown", style=discord.ButtonStyle.danger, row=3, custom_id="panel_lockdown")
     async def btn_lockdown(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_staff(interaction): return
         raid_cog = interaction.client.cogs.get("Raid")
@@ -335,7 +397,7 @@ class GeneralPanelView(discord.ui.View):
             await raid_cog._lockdown(interaction.guild, cfg, auto=False)
         await interaction.response.send_message("🔒 Server locked down.", ephemeral=True)
 
-    @discord.ui.button(label="✅ Unlock", style=discord.ButtonStyle.success, row=2, custom_id="panel_unlock")
+    @discord.ui.button(label="✅ Unlock", style=discord.ButtonStyle.success, row=3, custom_id="panel_unlock")
     async def btn_unlock(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._check_staff(interaction): return
         raid_cog = interaction.client.cogs.get("Raid")
@@ -346,7 +408,7 @@ class GeneralPanelView(discord.ui.View):
 
 
 class ModMailPanelView(discord.ui.View):
-    """ModMail ticket context — reply, close."""
+    """ModMail ticket context -- reply, close."""
 
     def __init__(self, bot, ticket, user):
         super().__init__(timeout=300)
@@ -379,7 +441,7 @@ class ModMailPanelView(discord.ui.View):
 
 
 class JailPanelView(discord.ui.View):
-    """Jail channel context — unjail, message controls."""
+    """Jail channel context -- unjail, message controls."""
 
     def __init__(self, bot, jail_record, member):
         super().__init__(timeout=300)
@@ -450,7 +512,7 @@ class Panel(commands.Cog):
             description=(
                 "Use the buttons below to take moderation actions.\n"
                 "All actions are logged to **#mod-log**.\n\n"
-                "You can also use slash commands — type `/` to see the full list."
+                "You can also use slash commands -- type `/` to see the full list."
             ),
             color=discord.Color.dark_blue(),
             timestamp=datetime.utcnow(),
@@ -480,7 +542,7 @@ class Panel(commands.Cog):
             view  = ModMailPanelView(self.bot, ticket, user)
             embed = discord.Embed(
                 title="📬 ModMail Panel",
-                description=f"Ticket #{ticket['id']} — <@{ticket['user_id']}>",
+                description=f"Ticket #{ticket['id']} -- <@{ticket['user_id']}>",
                 color=discord.Color.gold(),
             )
             embed.add_field(name="Opened", value=ticket["opened_at"][:19], inline=True)

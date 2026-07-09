@@ -83,17 +83,61 @@ class UserInfo(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="purge", description="Delete messages in this channel.")
-    @app_commands.describe(amount="Number of messages to delete (max 100)")
-    async def purge(self, interaction: discord.Interaction, amount: int):
+    @app_commands.command(name="purge", description="Delete messages in this channel with optional filters.")
+    @app_commands.describe(
+        amount="Number of messages to scan (max 200)",
+        user="Only delete messages from this user",
+        contains="Only delete messages containing this text",
+        bots_only="Only delete messages from bots",
+        max_age="Only delete messages newer than this (e.g. 1h, 30m, 2d)",
+    )
+    async def purge(self, interaction: discord.Interaction, amount: int,
+                    user: discord.Member = None, contains: str = None,
+                    bots_only: bool = False, max_age: str = None):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
-            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+            return await interaction.response.send_message("Staff only.", ephemeral=True)
 
-        amount = max(1, min(100, amount))
+        amount = max(1, min(200, amount))
         await interaction.response.defer(ephemeral=True)
-        deleted = await interaction.channel.purge(limit=amount)
-        await interaction.edit_original_response(content=f"✅ Deleted {len(deleted)} messages.")
+
+        # Parse max_age if provided
+        from datetime import timedelta, datetime, timezone
+        age_cutoff = None
+        if max_age:
+            from cogs.moderation import parse_duration
+            td = parse_duration(max_age)
+            if td:
+                age_cutoff = datetime.now(timezone.utc) - td
+
+        contains_lower = contains.lower() if contains else None
+
+        def check(msg):
+            if user and msg.author.id != user.id:
+                return False
+            if bots_only and not msg.author.bot:
+                return False
+            if contains_lower and contains_lower not in msg.content.lower():
+                return False
+            if age_cutoff and msg.created_at < age_cutoff:
+                return False
+            return True
+
+        deleted = await interaction.channel.purge(limit=amount, check=check)
+        filters_used = []
+        if user:
+            filters_used.append(f"user: {user}")
+        if contains:
+            filters_used.append(f"contains: '{contains}'")
+        if bots_only:
+            filters_used.append("bots only")
+        if max_age:
+            filters_used.append(f"max age: {max_age}")
+
+        summary = f"Deleted {len(deleted)} messages."
+        if filters_used:
+            summary += f" Filters: {', '.join(filters_used)}"
+        await interaction.edit_original_response(content=summary)
 
 
 async def setup(bot: commands.Bot):

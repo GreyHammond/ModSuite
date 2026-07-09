@@ -1,22 +1,22 @@
 """
-setup.py — ModSuite v2.5
+setup.py -- ModSuite v2.5
 
-/setup opens the ModSuite Configuration Hub — a full menu-driven UI covering
+/setup opens the ModSuite Configuration Hub -- a full menu-driven UI covering
 every persisted setting the bot has. Admins never need to touch a slash command
 to change roles, channels, thresholds, message templates, or AutoMod filters.
 
 Structure:
-  ConfigHubView            — top-level menu
-    GeneralPanel           — role & channel pickers
-    MessagesPanel          — edit any bot-message template
-    WarnsPanel             — warn thresholds
-    RaidPanel              — raid trigger + response
-    SpamPanel              — AutoMod spam settings
-    LinksPanel             — AutoMod link whitelist/blacklist
-    InvitesPanel           — AutoMod invite filter
-    ImmunePanel            — AutoMod immune roles
+  ConfigHubView            -- top-level menu
+    GeneralPanel           -- role & channel pickers
+    MessagesPanel          -- edit any bot-message template
+    WarnsPanel             -- warn thresholds
+    RaidPanel              -- raid trigger + response
+    SpamPanel              -- AutoMod spam settings
+    LinksPanel             -- AutoMod link whitelist/blacklist
+    InvitesPanel           -- AutoMod invite filter
+    ImmunePanel            -- AutoMod immune roles
 
-  ConfirmSetupView         — install / re-install flow (unchanged from v1.5)
+  ConfirmSetupView         -- install / re-install flow (unchanged from v1.5)
 
 Branding footer: ModSuite · Hammond Digital Studios
 """
@@ -29,7 +29,7 @@ import config
 FOOTER_BRAND = "ModSuite · Hammond Digital Studios"
 
 # ── New role definitions ─────────────────────────────────────────────────────
-# (cfg_key, display_name)  — no special perms or forced color per spec
+# (cfg_key, display_name)  -- no special perms or forced color per spec
 DM_PREF_ROLES = [
     ("role_dm_open",   "DM Open"),
     ("role_dm_closed", "DM Closed"),
@@ -55,9 +55,9 @@ PRONOUN_EMOJIS    = ["🔵", "🔴", "🟣", "🟡", "🟢", "🌈", "💬"]
 def _inventory(cfg: dict) -> tuple[list[str], list[str], str]:
     """
     Inspect guild_config and return:
-      configured  — list of human-readable labels for resources that exist
-      to_create   — list of human-readable labels for resources that are missing
-      status      — one of 'fresh', 'update', 'complete'
+      configured  -- list of human-readable labels for resources that exist
+      to_create   -- list of human-readable labels for resources that are missing
+      status      -- one of 'fresh', 'update', 'complete'
     """
     configured: list[str] = []
     to_create:  list[str] = []
@@ -108,11 +108,11 @@ def _build_confirmation_embed(
 ) -> discord.Embed:
     status_labels = {
         "fresh":    "Fresh Installation",
-        "update":   "Existing Installation — Update Available",
+        "update":   "Existing Installation -- Update Available",
         "complete": "Everything is already configured",
     }
     embed = discord.Embed(
-        title="🔧 ModSuite Setup — Review Before Continuing",
+        title="🔧 ModSuite Setup -- Review Before Continuing",
         color=0x3498DB,
     )
     embed.description = f"**Detected:** {status_labels[status]}"
@@ -133,7 +133,7 @@ def _build_confirmation_embed(
     else:
         embed.add_field(
             name="🆕 Will be created",
-            value="Nothing to do — server is fully up to date.",
+            value="Nothing to do -- server is fully up to date.",
             inline=False,
         )
 
@@ -160,7 +160,7 @@ class ConfirmSetupView(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not await self._guard(interaction):
             return
-        await interaction.response.defer()  # type 6 — defers update, allows edit_original_response
+        await interaction.response.defer()  # type 6 -- defers update, allows edit_original_response
 
         cfg = db.get_config(self.guild.id) or {}
         created: list[str] = []
@@ -301,7 +301,7 @@ class ConfirmSetupView(discord.ui.View):
                 cfg = db.get_config(self.guild.id) or {}
                 created.append("Self-roles channel (#self-roles)")
             else:
-                # Channel already exists — make sure we have a reference for message posting below
+                # Channel already exists -- make sure we have a reference for message posting below
                 pass
 
             # ── Color roles message (never reposted if already stored) ─────────
@@ -404,7 +404,7 @@ class ConfirmSetupView(discord.ui.View):
 
             # Seed bot_messages defaults for any slots not yet present, then
             # migrate the three built-in selfrole categories to the new tables.
-            # Both operations are idempotent — safe to call on re-runs.
+            # Both operations are idempotent -- safe to call on re-runs.
             from utils import DEFAULTS
             db.seed_bot_messages(str(self.guild.id), DEFAULTS)
             db.migrate_builtin_selfrole_categories(self.guild.id)
@@ -426,7 +426,7 @@ class ConfirmSetupView(discord.ui.View):
             else:
                 result_embed = discord.Embed(
                     title="✅ Already Up to Date",
-                    description="Server is fully configured — nothing needed to be created.",
+                    description="Server is fully configured -- nothing needed to be created.",
                     color=discord.Color.green(),
                 )
             result_embed.set_footer(text=FOOTER_BRAND)
@@ -491,7 +491,7 @@ def _yn(v):
 
 def _dur_mins(v):
     if v is None or v == "":
-        return "—"
+        return "--"
     try:
         return f"{int(v)}m"
     except Exception:
@@ -524,7 +524,7 @@ def _hub_embed(guild: discord.Guild, cfg: dict) -> discord.Embed:
         description=(
             f"**Server:** {guild.name}\n"
             f"**Status:** {'✅ Set up' if setup_done else '⚠️ Not yet set up'}\n\n"
-            "Pick a section below. Every setting has a menu — no commands required."
+            "Pick a section below. Every setting has a menu -- no commands required."
         ),
         color=color,
     )
@@ -545,7 +545,12 @@ def _hub_embed(guild: discord.Guild, cfg: dict) -> discord.Embed:
             value=(
                 f"Spam: {_yn(cfg.get('spam_enabled'))}\n"
                 f"Links: {_yn(cfg.get('link_filter_enabled'))}\n"
-                f"Invites: {_yn(cfg.get('invite_filter_enabled'))}"
+                f"Invites: {_yn(cfg.get('invite_filter_enabled'))}\n"
+                f"Word lists: {_yn(cfg.get('wordlist_enabled'))}\n"
+                f"Anti-phishing: {_yn(cfg.get('antiphish_enabled', 1))}\n"
+                f"All-caps: {_yn(cfg.get('allcaps_enabled'))}\n"
+                f"Name filter: {_yn(cfg.get('name_filter_enabled'))}\n"
+                f"Verify gate: {_yn(cfg.get('verify_gate_enabled'))}"
             ),
             inline=True,
         )
@@ -554,7 +559,8 @@ def _hub_embed(guild: discord.Guild, cfg: dict) -> discord.Embed:
             value=(
                 f"Trigger: **{cfg.get('raid_join_count', 10)}** in **{cfg.get('raid_join_seconds', 10)}s**\n"
                 f"Cooldown: **{cfg.get('raid_lockdown_cooldown_min', 5)}m**\n"
-                f"Auto-verify: {_yn(cfg.get('raid_auto_verification'))}"
+                f"Auto-verify: {_yn(cfg.get('raid_auto_verification'))}\n"
+                f"Profile: **{cfg.get('active_profile', 'normal')}**"
             ),
             inline=True,
         )
@@ -626,8 +632,29 @@ class ConfigHubView(discord.ui.View):
     async def immune_btn(self, interaction, button):
         await self._open(interaction, ImmunePanel)
 
-    # Row 3: install / done
-    @discord.ui.button(label="🚀 Run install", style=discord.ButtonStyle.success, row=3)
+    @discord.ui.button(label="🔶 Violations", style=discord.ButtonStyle.primary, row=2)
+    async def violations_btn(self, interaction, button):
+        await self._open(interaction, ViolationsPanel)
+
+    @discord.ui.button(label="📝 Content Filters", style=discord.ButtonStyle.primary, row=2)
+    async def content_btn(self, interaction, button):
+        await self._open(interaction, ContentFiltersPanel)
+
+    # Row 3: profiles + name filter + verify gate
+    @discord.ui.button(label="🎚️ Profiles", style=discord.ButtonStyle.primary, row=3)
+    async def profiles_btn(self, interaction, button):
+        await self._open(interaction, ProfilesPanel)
+
+    @discord.ui.button(label="🚫 Name Filter", style=discord.ButtonStyle.primary, row=3)
+    async def namefilter_btn(self, interaction, button):
+        await self._open(interaction, NameFilterPanel)
+
+    @discord.ui.button(label="🚪 Verify Gate", style=discord.ButtonStyle.primary, row=3)
+    async def verifygate_btn(self, interaction, button):
+        await self._open(interaction, VerifyGatePanel)
+
+    # Row 4: install + done
+    @discord.ui.button(label="🚀 Run install", style=discord.ButtonStyle.success, row=4)
     async def install_btn(self, interaction, button):
         if not await self._guard(interaction):
             return
@@ -637,7 +664,7 @@ class ConfigHubView(discord.ui.View):
         confirm_view  = ConfirmSetupView(self.guild, self.invoker, to_create)
         await interaction.response.edit_message(embed=confirm_embed, view=confirm_view)
 
-    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="Done", style=discord.ButtonStyle.secondary, row=4)
     async def done_btn(self, interaction, button):
         if not await self._guard(interaction):
             return
@@ -652,7 +679,7 @@ class ConfigHubView(discord.ui.View):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared panel base — Back button + boilerplate
+# Shared panel base -- Back button + boilerplate
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _BasePanel(discord.ui.View):
@@ -680,7 +707,7 @@ class _BasePanel(discord.ui.View):
         db.upsert_config(self.guild.id, **fields)
 
     def refresh(self):
-        """Rebuild the view — subclasses should override to reflect updated state."""
+        """Rebuild the view -- subclasses should override to reflect updated state."""
         # Default is to rebuild an instance and steal its items
         new = self.__class__(self.guild, self.invoker)
         self.clear_items()
@@ -708,7 +735,7 @@ class _BasePanel(discord.ui.View):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# General panel — roles + channels
+# General panel -- roles + channels
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _RoleSelect(discord.ui.RoleSelect):
@@ -764,15 +791,15 @@ class GeneralPanel(_BasePanel):
         self.add_item(_SectionSelect(self))
         cfg = self.cfg()
         if self._section == "roles":
-            self.add_item(_RoleSelect(self, "owner_role_id",    f"Owner role — {_fmt_id(cfg.get('owner_role_id'))}",       row=1))
-            self.add_item(_RoleSelect(self, "mod_role_id",      f"Moderator role — {_fmt_id(cfg.get('mod_role_id'))}",     row=2))
-            self.add_item(_RoleSelect(self, "verified_role_id", f"Verified role — {_fmt_id(cfg.get('verified_role_id'))}", row=3))
-            self.add_item(_RoleSelect(self, "auto_role_id",     f"Auto-role — {_fmt_id(cfg.get('auto_role_id'))}",         row=4))
+            self.add_item(_RoleSelect(self, "owner_role_id",    f"Owner role -- {_fmt_id(cfg.get('owner_role_id'))}",       row=1))
+            self.add_item(_RoleSelect(self, "mod_role_id",      f"Moderator role -- {_fmt_id(cfg.get('mod_role_id'))}",     row=2))
+            self.add_item(_RoleSelect(self, "verified_role_id", f"Verified role -- {_fmt_id(cfg.get('verified_role_id'))}", row=3))
+            self.add_item(_RoleSelect(self, "auto_role_id",     f"Auto-role -- {_fmt_id(cfg.get('auto_role_id'))}",         row=4))
         else:
-            self.add_item(_ChannelSelect(self, "modmail_ch_id",   f"ModMail — {_fmt_ch(cfg.get('modmail_ch_id'))}",       row=1))
-            self.add_item(_ChannelSelect(self, "modlog_ch_id",    f"Mod-Log — {_fmt_ch(cfg.get('modlog_ch_id'))}",        row=2))
-            self.add_item(_ChannelSelect(self, "closed_ch_id",    f"Closed tickets — {_fmt_ch(cfg.get('closed_ch_id'))}", row=3))
-            self.add_item(_ChannelSelect(self, "selfroles_ch_id", f"Self-Roles — {_fmt_ch(cfg.get('selfroles_ch_id'))}",  row=4))
+            self.add_item(_ChannelSelect(self, "modmail_ch_id",   f"ModMail -- {_fmt_ch(cfg.get('modmail_ch_id'))}",       row=1))
+            self.add_item(_ChannelSelect(self, "modlog_ch_id",    f"Mod-Log -- {_fmt_ch(cfg.get('modlog_ch_id'))}",        row=2))
+            self.add_item(_ChannelSelect(self, "closed_ch_id",    f"Closed tickets -- {_fmt_ch(cfg.get('closed_ch_id'))}", row=3))
+            self.add_item(_ChannelSelect(self, "selfroles_ch_id", f"Self-Roles -- {_fmt_ch(cfg.get('selfroles_ch_id'))}",  row=4))
 
     def refresh(self):
         self._render()
@@ -792,7 +819,7 @@ class GeneralPanel(_BasePanel):
             f"Closed tickets: {_fmt_ch(cfg.get('closed_ch_id'))}\n"
             f"Self-Roles: {_fmt_ch(cfg.get('selfroles_ch_id'))}"
         )
-        e.set_footer(text=f"{FOOTER_BRAND} — showing: {self._section.capitalize()}")
+        e.set_footer(text=f"{FOOTER_BRAND} -- showing: {self._section.capitalize()}")
         return e
 
 
@@ -835,7 +862,7 @@ GeneralPanel._render = _general_render_with_back
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Messages panel — edit any bot-message template
+# Messages panel -- edit any bot-message template
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _MessageEditModal(discord.ui.Modal):
@@ -1038,7 +1065,7 @@ class RaidPanel(_BasePanel):
         e.description = (
             f"**Trigger:** {cfg.get('raid_join_count', 10)} joins in {cfg.get('raid_join_seconds', 10)}s\n"
             f"**Account age gate:** {cfg.get('raid_min_account_age_days', 0)} days (0 = off)\n"
-            f"**During raid:** {cfg.get('raid_active_action', 'kick').capitalize()} new joiners\n"
+            f"**During raid:** {cfg.get('raid_active_action', 'ban').capitalize()} new joiners\n"
             f"**Auto-verification bump:** {_yn(cfg.get('raid_auto_verification'))}\n"
             f"**Auto-unlock cooldown:** {cfg.get('raid_lockdown_cooldown_min', 5)}m"
         )
@@ -1170,7 +1197,7 @@ class SpamPanel(_BasePanel):
         cfg = self.cfg()
         # Toggle
         toggle = discord.ui.Button(
-            label=f"Spam detection: {'ON' if cfg.get('spam_enabled') else 'OFF'} — click to toggle",
+            label=f"Spam detection: {'ON' if cfg.get('spam_enabled') else 'OFF'} -- click to toggle",
             style=discord.ButtonStyle.success if cfg.get('spam_enabled') else discord.ButtonStyle.danger,
             row=1,
         )
@@ -1204,7 +1231,7 @@ class SpamPanel(_BasePanel):
         e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
         e.add_field(
             name="Status",
-            value=f"{_yn(cfg.get('spam_enabled'))} — action: **{cfg.get('spam_action', 'mute')}**",
+            value=f"{_yn(cfg.get('spam_enabled'))} -- action: **{cfg.get('spam_action', 'mute')}**",
             inline=False,
         )
         e.add_field(
@@ -1230,7 +1257,7 @@ def _append_domain_fields_setup(embed: "discord.Embed", label: str, domains: lis
     """
     Append one or more embed fields listing every domain.
     Splits into multiple fields if the list would exceed Discord's 1024-char
-    per-field limit. Mirrors the helper in cogs/automod.py — duplicated here
+    per-field limit. Mirrors the helper in cogs/automod.py -- duplicated here
     to avoid a cross-cog import.
     """
     if not domains:
@@ -1346,7 +1373,7 @@ class LinksPanel(_BasePanel):
         self.add_item(toggle)
 
         mode_swap = discord.ui.Button(
-            label=f"Mode: {cfg.get('link_mode', 'whitelist')} — swap",
+            label=f"Mode: {cfg.get('link_mode', 'whitelist')} -- swap",
             style=discord.ButtonStyle.secondary,
             row=3,
         )
@@ -1372,7 +1399,7 @@ class LinksPanel(_BasePanel):
         add_bl.callback = add_bl_cb
         self.add_item(add_bl)
 
-        # View-all — shows every domain (handles overflow beyond the panel's preview limit)
+        # View-all -- shows every domain (handles overflow beyond the panel's preview limit)
         view_all = discord.ui.Button(label="📋 View all domains", style=discord.ButtonStyle.secondary, row=3)
         async def view_all_cb(i):
             if not await self.guard(i): return
@@ -1385,7 +1412,7 @@ class LinksPanel(_BasePanel):
             if not isinstance(bl, list): bl = []
 
             e = discord.Embed(
-                title="🔗 Link Lists — full listing",
+                title="🔗 Link Lists -- full listing",
                 color=0x1ABC9C,
                 description=(
                     f"Filter: **{'on' if cfg.get('link_filter_enabled') else 'off'}** · "
@@ -1420,7 +1447,7 @@ class LinksPanel(_BasePanel):
         try: bl = _json.loads(cfg.get("link_blacklist") or "[]")
         except Exception: bl = []
         e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
-        e.add_field(name="Status", value=f"{_yn(cfg.get('link_filter_enabled'))} — mode: **{cfg.get('link_mode', 'whitelist')}** — action: **{cfg.get('link_action', 'delete')}**", inline=False)
+        e.add_field(name="Status", value=f"{_yn(cfg.get('link_filter_enabled'))} -- mode: **{cfg.get('link_mode', 'whitelist')}** -- action: **{cfg.get('link_action', 'delete')}**", inline=False)
         e.add_field(name=f"Whitelist ({len(wl)})", value=", ".join(f"`{d}`" for d in wl[:15]) or "*(empty)*", inline=False)
         e.add_field(name=f"Blacklist ({len(bl)})", value=", ".join(f"`{d}`" for d in bl[:15]) or "*(empty)*", inline=False)
         e.set_footer(text=FOOTER_BRAND)
@@ -1442,7 +1469,7 @@ class InvitesPanel(_BasePanel):
         self.add_item(_ActionSelect(self, "invite_action", "Set invite action…", row=0))
         cfg = self.cfg()
         toggle = discord.ui.Button(
-            label=f"Filter: {'ON' if cfg.get('invite_filter_enabled') else 'OFF'} — click to toggle",
+            label=f"Filter: {'ON' if cfg.get('invite_filter_enabled') else 'OFF'} -- click to toggle",
             style=discord.ButtonStyle.success if cfg.get('invite_filter_enabled') else discord.ButtonStyle.danger,
             row=1,
         )
@@ -1469,7 +1496,7 @@ class InvitesPanel(_BasePanel):
     def embed(self):
         cfg = self.cfg()
         e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
-        e.add_field(name="Status", value=f"{_yn(cfg.get('invite_filter_enabled'))} — action: **{cfg.get('invite_action', 'delete')}**", inline=False)
+        e.add_field(name="Status", value=f"{_yn(cfg.get('invite_filter_enabled'))} -- action: **{cfg.get('invite_action', 'delete')}**", inline=False)
         e.set_footer(text=FOOTER_BRAND)
         return e
 
@@ -1584,9 +1611,499 @@ class ImmunePanel(_BasePanel):
                 inline=False,
             )
         else:
-            e.add_field(name="Immune roles", value="*(none — every member is subject to AutoMod)*", inline=False)
+            e.add_field(name="Immune roles", value="*(none -- every member is subject to AutoMod)*", inline=False)
         e.set_footer(text=FOOTER_BRAND)
         return e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Name Filter panel (v3.0)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NameFilterPanel(_BasePanel):
+    TITLE = "🚫 Name Filter"
+    DESCRIPTION = (
+        "Block usernames and nicknames containing specific words. "
+        "Optionally normalizes Unicode confusable characters before checking."
+    )
+    COLOR = 0xE74C3C
+
+    def __init__(self, guild, invoker):
+        super().__init__(guild, invoker)
+        self.clear_items()
+        cfg = self.cfg()
+
+        toggle = discord.ui.Button(
+            label=f"Filter: {'ON' if cfg.get('name_filter_enabled') else 'OFF'}",
+            style=discord.ButtonStyle.success if cfg.get('name_filter_enabled') else discord.ButtonStyle.danger,
+            row=0,
+        )
+        async def toggle_cb(i):
+            if not await self.guard(i): return
+            self.save(name_filter_enabled=0 if cfg.get('name_filter_enabled') else 1)
+            await self.repaint(i)
+        toggle.callback = toggle_cb
+        self.add_item(toggle)
+
+        confuse = discord.ui.Button(
+            label=f"Confusables: {'ON' if cfg.get('name_filter_confusables', 1) else 'OFF'}",
+            style=discord.ButtonStyle.success if cfg.get('name_filter_confusables', 1) else discord.ButtonStyle.danger,
+            row=0,
+        )
+        async def confuse_cb(i):
+            if not await self.guard(i): return
+            self.save(name_filter_confusables=0 if cfg.get('name_filter_confusables', 1) else 1)
+            await self.repaint(i)
+        confuse.callback = confuse_cb
+        self.add_item(confuse)
+
+        # Action select
+        action_options = [
+            discord.SelectOption(label="Log only", value="log", emoji="📋"),
+            discord.SelectOption(label="Kick", value="kick", emoji="👢"),
+            discord.SelectOption(label="Ban", value="ban", emoji="🔨"),
+        ]
+        action_select = discord.ui.Select(placeholder="Set action...", options=action_options, row=1)
+        async def action_cb(i):
+            if not await self.guard(i): return
+            self.save(name_filter_action=action_select.values[0])
+            await self.repaint(i)
+        action_select.callback = action_cb
+        self.add_item(action_select)
+
+        back = discord.ui.Button(label="<- Back to hub", style=discord.ButtonStyle.secondary, row=4)
+        async def back_cb(interaction):
+            if not await self.guard(interaction): return
+            view = ConfigHubView(self.guild, self.invoker)
+            cfg2 = db.get_config(self.guild.id) or {}
+            await interaction.response.edit_message(embed=_hub_embed(self.guild, cfg2), view=view)
+        back.callback = back_cb
+        self.add_item(back)
+
+    def refresh(self):
+        self.__init__(self.guild, self.invoker)
+
+    def embed(self):
+        cfg = self.cfg()
+        words = []
+        try:
+            words = _json.loads(cfg.get("name_filter_words") or "[]")
+            if not isinstance(words, list): words = []
+        except Exception:
+            pass
+
+        e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
+        e.add_field(
+            name="Status",
+            value=(
+                f"Filter: {_yn(cfg.get('name_filter_enabled'))}\n"
+                f"Action: **{cfg.get('name_filter_action', 'log')}**\n"
+                f"Confusable normalization: {_yn(cfg.get('name_filter_confusables', 1))}"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name=f"Blocked words ({len(words)})",
+            value=", ".join(f"`{w}`" for w in words[:20]) or "*(empty -- use `/namefilter add` to add words)*",
+            inline=False,
+        )
+        e.set_footer(text=FOOTER_BRAND)
+        return e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Verify Gate panel (v3.0)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class VerifyGatePanel(_BasePanel):
+    TITLE = "🚪 Verification Gate"
+    DESCRIPTION = (
+        "Require new members to react to a message to gain access. "
+        "Until verified, they lack the gate role and can only see the verify channel."
+    )
+    COLOR = 0x2ECC71
+
+    def __init__(self, guild, invoker):
+        super().__init__(guild, invoker)
+        self.clear_items()
+        cfg = self.cfg()
+
+        toggle = discord.ui.Button(
+            label=f"Gate: {'ON' if cfg.get('verify_gate_enabled') else 'OFF'}",
+            style=discord.ButtonStyle.success if cfg.get('verify_gate_enabled') else discord.ButtonStyle.danger,
+            row=0,
+        )
+        async def toggle_cb(i):
+            if not await self.guard(i): return
+            self.save(verify_gate_enabled=0 if cfg.get('verify_gate_enabled') else 1)
+            await self.repaint(i)
+        toggle.callback = toggle_cb
+        self.add_item(toggle)
+
+        self.add_item(_RoleSelect(self, "verify_gate_role_id", "Set gate role...", row=1))
+        self.add_item(_ChannelSelect(self, "verify_gate_channel_id", "Set verify channel...", row=2))
+
+        back = discord.ui.Button(label="<- Back to hub", style=discord.ButtonStyle.secondary, row=4)
+        async def back_cb(interaction):
+            if not await self.guard(interaction): return
+            view = ConfigHubView(self.guild, self.invoker)
+            cfg2 = db.get_config(self.guild.id) or {}
+            await interaction.response.edit_message(embed=_hub_embed(self.guild, cfg2), view=view)
+        back.callback = back_cb
+        self.add_item(back)
+
+    def refresh(self):
+        self.__init__(self.guild, self.invoker)
+
+    def embed(self):
+        cfg = self.cfg()
+        e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
+        e.add_field(
+            name="Status",
+            value=f"{_yn(cfg.get('verify_gate_enabled'))}",
+            inline=True,
+        )
+        e.add_field(
+            name="Role",
+            value=_fmt_id(cfg.get("verify_gate_role_id")),
+            inline=True,
+        )
+        e.add_field(
+            name="Channel",
+            value=_fmt_ch(cfg.get("verify_gate_channel_id")),
+            inline=True,
+        )
+        e.add_field(
+            name="Emoji",
+            value=cfg.get("verify_gate_emoji") or "\u2705",
+            inline=True,
+        )
+        e.add_field(
+            name="Message",
+            value=f"ID: `{cfg.get('verify_gate_message_id') or 'not posted'}`\nUse `/verifygate post` to create",
+            inline=False,
+        )
+        e.set_footer(text=FOOTER_BRAND)
+        return e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Profiles panel (v2.9)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ProfileSelect(discord.ui.Select):
+    def __init__(self, panel):
+        db.seed_profiles(str(panel.guild.id))
+        profiles = db.get_all_profiles(str(panel.guild.id))
+        cfg = panel.cfg()
+        active = cfg.get("active_profile") or "normal"
+        options = []
+        for p in profiles[:25]:
+            tag = " (active)" if p["name"] == active else ""
+            built = " [built-in]" if p.get("built_in") else ""
+            n_overrides = len(p.get("overrides", {}))
+            options.append(discord.SelectOption(
+                label=f"{p['name']}{tag}{built}",
+                value=p["name"],
+                description=f"{n_overrides} override(s)",
+                default=(p["name"] == active),
+            ))
+        if not options:
+            options = [discord.SelectOption(label="normal", value="normal")]
+        super().__init__(placeholder="Switch profile...", options=options, row=0)
+        self.panel = panel
+
+    async def callback(self, interaction):
+        if not await self.panel.guard(interaction):
+            return
+        name = self.values[0]
+        self.panel.save(active_profile=name)
+        db.add_mod_log(
+            guild_id=str(self.panel.guild.id),
+            action="PROFILE_SWITCH",
+            target_id="",
+            target_username="",
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=f"Profile switched to {name} via /setup",
+        )
+        await self.panel.repaint(interaction)
+
+
+class ProfilesPanel(_BasePanel):
+    TITLE = "🎚️ Severity Profiles"
+    DESCRIPTION = (
+        "Named sets of automod thresholds. Switch instantly between "
+        "normal, strict, and raid modes. The raid profile auto-activates "
+        "during lockdown and restores when the lockdown lifts."
+    )
+    COLOR = 0x9B59B6
+
+    def __init__(self, guild, invoker):
+        super().__init__(guild, invoker)
+        self.clear_items()
+        self.add_item(_ProfileSelect(self))
+
+        back = discord.ui.Button(label="<- Back to hub", style=discord.ButtonStyle.secondary, row=4)
+        async def back_cb(interaction):
+            if not await self.guard(interaction): return
+            view = ConfigHubView(self.guild, self.invoker)
+            cfg2 = db.get_config(self.guild.id) or {}
+            await interaction.response.edit_message(embed=_hub_embed(self.guild, cfg2), view=view)
+        back.callback = back_cb
+        self.add_item(back)
+
+    def refresh(self):
+        self.__init__(self.guild, self.invoker)
+
+    def embed(self):
+        cfg = self.cfg()
+        active = cfg.get("active_profile") or "normal"
+        db.seed_profiles(str(self.guild.id))
+        profiles = db.get_all_profiles(str(self.guild.id))
+
+        e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
+        e.add_field(name="Active profile", value=f"**{active}**", inline=False)
+
+        for p in profiles:
+            tag = " **(active)**" if p["name"] == active else ""
+            built = " [built-in]" if p.get("built_in") else ""
+            overrides = p.get("overrides", {})
+            preview = ", ".join(f"`{k}`={v}" for k, v in list(overrides.items())[:4])
+            if len(overrides) > 4:
+                preview += f" ...+{len(overrides) - 4}"
+            e.add_field(
+                name=f"{p['name']}{tag}{built}",
+                value=preview or "No overrides",
+                inline=False,
+            )
+
+        e.set_footer(text=FOOTER_BRAND)
+        return e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Content Filters panel (v2.7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ContentFiltersModal(discord.ui.Modal, title="Content filter settings"):
+    max_len  = discord.ui.TextInput(label="Max message length (0 = off)", placeholder="e.g. 2000", required=False, max_length=5)
+    min_len  = discord.ui.TextInput(label="Min message length (0 = off)", placeholder="e.g. 0",    required=False, max_length=5)
+    sm_sec   = discord.ui.TextInput(label="Slowmode interval (seconds)",  placeholder="e.g. 5",    required=False, max_length=4)
+    ac_pct   = discord.ui.TextInput(label="All-caps threshold % (50-100)", placeholder="e.g. 70",  required=False, max_length=3)
+
+    def __init__(self, panel):
+        super().__init__()
+        self.panel = panel
+        cfg = panel.cfg()
+        self.max_len.default = str(cfg.get("max_message_length") or "")
+        self.min_len.default = str(cfg.get("min_message_length") or "")
+        self.sm_sec.default  = str(cfg.get("slowmode_seconds") or "")
+        self.ac_pct.default  = str(cfg.get("allcaps_threshold") or "")
+
+    async def on_submit(self, interaction):
+        def si(v, default):
+            try: return max(0, int(v.strip()))
+            except: return default
+        updates = {}
+        if self.max_len.value.strip(): updates["max_message_length"] = si(self.max_len.value, 0)
+        if self.min_len.value.strip(): updates["min_message_length"] = si(self.min_len.value, 0)
+        if self.sm_sec.value.strip():  updates["slowmode_seconds"]   = max(2, si(self.sm_sec.value, 5))
+        if self.ac_pct.value.strip():  updates["allcaps_threshold"]  = max(50, min(100, si(self.ac_pct.value, 70)))
+        if updates:
+            self.panel.save(**updates)
+        await self.panel.repaint(interaction)
+
+
+class ContentFiltersPanel(_BasePanel):
+    TITLE = "📝 Content Filters"
+    DESCRIPTION = (
+        "Anti-phishing, message length, slowmode, and all-caps filtering."
+    )
+    COLOR = 0x3498DB
+
+    def __init__(self, guild, invoker):
+        super().__init__(guild, invoker)
+        self.clear_items()
+        cfg = self.cfg()
+
+        # Anti-phishing toggle
+        ap_toggle = discord.ui.Button(
+            label=f"Anti-phishing: {'ON' if cfg.get('antiphish_enabled', 1) else 'OFF'}",
+            style=discord.ButtonStyle.success if cfg.get('antiphish_enabled', 1) else discord.ButtonStyle.danger,
+            row=0,
+        )
+        async def ap_cb(i):
+            if not await self.guard(i): return
+            self.save(antiphish_enabled=0 if cfg.get('antiphish_enabled', 1) else 1)
+            await self.repaint(i)
+        ap_toggle.callback = ap_cb
+        self.add_item(ap_toggle)
+
+        # Slowmode toggle
+        sm_toggle = discord.ui.Button(
+            label=f"Slowmode: {'ON' if cfg.get('slowmode_enabled') else 'OFF'}",
+            style=discord.ButtonStyle.success if cfg.get('slowmode_enabled') else discord.ButtonStyle.danger,
+            row=0,
+        )
+        async def sm_cb(i):
+            if not await self.guard(i): return
+            self.save(slowmode_enabled=0 if cfg.get('slowmode_enabled') else 1)
+            await self.repaint(i)
+        sm_toggle.callback = sm_cb
+        self.add_item(sm_toggle)
+
+        # All-caps toggle
+        ac_toggle = discord.ui.Button(
+            label=f"All-caps: {'ON' if cfg.get('allcaps_enabled') else 'OFF'}",
+            style=discord.ButtonStyle.success if cfg.get('allcaps_enabled') else discord.ButtonStyle.danger,
+            row=0,
+        )
+        async def ac_cb(i):
+            if not await self.guard(i): return
+            self.save(allcaps_enabled=0 if cfg.get('allcaps_enabled') else 1)
+            await self.repaint(i)
+        ac_toggle.callback = ac_cb
+        self.add_item(ac_toggle)
+
+        # Edit thresholds
+        edit_btn = discord.ui.Button(label="Edit thresholds", style=discord.ButtonStyle.primary, row=1)
+        async def edit_cb(i):
+            if not await self.guard(i): return
+            await i.response.send_modal(_ContentFiltersModal(self))
+        edit_btn.callback = edit_cb
+        self.add_item(edit_btn)
+
+        # Back
+        back = discord.ui.Button(label="<- Back to hub", style=discord.ButtonStyle.secondary, row=4)
+        async def back_cb(interaction):
+            if not await self.guard(interaction): return
+            view = ConfigHubView(self.guild, self.invoker)
+            cfg2 = db.get_config(self.guild.id) or {}
+            await interaction.response.edit_message(embed=_hub_embed(self.guild, cfg2), view=view)
+        back.callback = back_cb
+        self.add_item(back)
+
+    def refresh(self):
+        self.__init__(self.guild, self.invoker)
+
+    def embed(self):
+        cfg = self.cfg()
+        e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
+
+        e.add_field(
+            name=f"Anti-Phishing {_yn(cfg.get('antiphish_enabled', 1))}",
+            value="Scans every URL against SinkingYachts phishing database",
+            inline=False,
+        )
+
+        max_len = cfg.get("max_message_length") or 0
+        min_len = cfg.get("min_message_length") or 0
+        len_status = []
+        if max_len > 0: len_status.append(f"max **{max_len}** chars")
+        if min_len > 0: len_status.append(f"min **{min_len}** chars")
+        e.add_field(
+            name=f"Message Length {_yn(max_len > 0 or min_len > 0)}",
+            value=", ".join(len_status) if len_status else "No limits set (use Edit thresholds to configure)",
+            inline=False,
+        )
+
+        sm_channels = []
+        try:
+            sm_channels = _json.loads(cfg.get("slowmode_channels") or "[]")
+            if not isinstance(sm_channels, list): sm_channels = []
+        except Exception:
+            pass
+        e.add_field(
+            name=f"Slowmode {_yn(cfg.get('slowmode_enabled'))}",
+            value=(
+                f"**{cfg.get('slowmode_seconds', 5)}s** per user per channel\n"
+                f"Channels: {', '.join(f'<#{c}>' for c in sm_channels[:10]) if sm_channels else '**all**'}"
+            ),
+            inline=False,
+        )
+
+        e.add_field(
+            name=f"All-Caps Filter {_yn(cfg.get('allcaps_enabled'))}",
+            value=f"Threshold: **{cfg.get('allcaps_threshold', 70)}%** (min **{cfg.get('allcaps_min_length', 10)}** alpha chars)",
+            inline=False,
+        )
+
+        e.set_footer(text=FOOTER_BRAND)
+        return e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Violations panel (v3.0)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ViolationsModal(discord.ui.Modal, title="Violation thresholds"):
+    threshold = discord.ui.TextInput(label="Violations before auto-jail", placeholder="e.g. 5", required=False, max_length=3)
+    window    = discord.ui.TextInput(label="Window (minutes)",            placeholder="e.g. 60", required=False, max_length=4)
+    jail_dur  = discord.ui.TextInput(label="Auto-jail duration (e.g. 1d, 6h)", placeholder="e.g. 1d", required=False, max_length=10)
+
+    def __init__(self, panel):
+        super().__init__()
+        self.panel = panel
+        cfg = panel.cfg()
+        self.threshold.default = str(cfg.get("violation_jail_threshold") or "")
+        self.window.default    = str(cfg.get("violation_window_minutes") or "")
+        self.jail_dur.default  = str(cfg.get("violation_jail_duration") or "")
+
+    async def on_submit(self, interaction):
+        def si(v, default):
+            try: return max(1, int(v.strip()))
+            except: return default
+        updates = {}
+        if self.threshold.value.strip(): updates["violation_jail_threshold"] = max(2, si(self.threshold.value, 5))
+        if self.window.value.strip():    updates["violation_window_minutes"] = max(5, si(self.window.value, 60))
+        if self.jail_dur.value.strip():  updates["violation_jail_duration"]  = self.jail_dur.value.strip()
+        if updates:
+            self.panel.save(**updates)
+        await self.panel.repaint(interaction)
+
+
+class ViolationsPanel(_BasePanel):
+    TITLE = "🔶 Violation Engine"
+    DESCRIPTION = (
+        "Every automod trigger records a violation. When a user accumulates "
+        "enough violations within the window, they are automatically jailed."
+    )
+    COLOR = 0xE67E22
+
+    def embed(self):
+        cfg = self.cfg()
+        e = discord.Embed(title=self.TITLE, description=self.DESCRIPTION, color=self.COLOR)
+        e.add_field(
+            name="Escalation",
+            value=(
+                f"**Threshold:** {cfg.get('violation_jail_threshold', 5)} violations\n"
+                f"**Window:** {cfg.get('violation_window_minutes', 60)} minutes\n"
+                f"**Auto-jail duration:** {cfg.get('violation_jail_duration', '1d')}"
+            ),
+            inline=False,
+        )
+        e.add_field(
+            name="Role persistence",
+            value=f"{_yn(cfg.get('role_persist_enabled', 1))} -- save roles on leave, restore on rejoin",
+            inline=False,
+        )
+        e.set_footer(text=FOOTER_BRAND)
+        return e
+
+    @discord.ui.button(label="Edit thresholds", style=discord.ButtonStyle.primary, row=0)
+    async def edit_btn(self, interaction, button):
+        if not await self.guard(interaction):
+            return
+        await interaction.response.send_modal(_ViolationsModal(self))
+
+    @discord.ui.button(label="Toggle role persistence", style=discord.ButtonStyle.secondary, row=1)
+    async def persist_btn(self, interaction, button):
+        if not await self.guard(interaction):
+            return
+        cfg = self.cfg()
+        self.save(role_persist_enabled=0 if cfg.get("role_persist_enabled", 1) else 1)
+        await self.repaint(interaction)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

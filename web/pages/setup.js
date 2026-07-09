@@ -1,11 +1,11 @@
 /**
- * setup.js — Agent 4
+ * setup.js -- Agent 4
  * Server setup checklist + bot messages summary.
  *
  * Data:  GET /bot-messages  •  GET /selfroles/categories
  *
  * Discord-configured resources (roles, channels set via /setup slash command)
- * have no API endpoint in v2.0 — shown as informational rows.
+ * have no API endpoint in v2.0 -- shown as informational rows.
  */
 
 import { get } from '../api.js';
@@ -134,7 +134,7 @@ const ICON = {
 function buildChecklist(botMessages, categories) {
   const rows = [];
 
-  // Discord-configured resources — no API endpoint in v2.0
+  // Discord-configured resources -- no API endpoint in v2.0
   [
     { name: 'Moderator role',    detail: 'Set via /setup in Discord' },
     { name: 'Owner role',        detail: 'Set via /setup in Discord' },
@@ -150,7 +150,7 @@ function buildChecklist(botMessages, categories) {
     const found = catNames.includes(name);
     rows.push({
       status: found ? 'ok' : 'warn',
-      name:   `Self Roles — ${name}`,
+      name:   `Self Roles -- ${name}`,
       detail: found
         ? 'Category configured'
         : 'Run /setup in Discord to create this category',
@@ -163,7 +163,7 @@ function buildChecklist(botMessages, categories) {
     .filter(c => !c.is_builtin)
     .forEach(c => rows.push({
       status: 'ok',
-      name:   `Self Roles — ${esc(c.name)}`,
+      name:   `Self Roles -- ${esc(c.name)}`,
       detail: `${c.roles?.length ?? 0} role${c.roles?.length !== 1 ? 's' : ''}`,
       badge:  'custom',
     }));

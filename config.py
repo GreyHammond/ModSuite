@@ -22,7 +22,7 @@ DEFAULT_MODMAIL_OPEN_MSG = (
 )
 DEFAULT_JAIL_MSG = (
     "🔒 You have been pulled into a private channel by a staff member.\n"
-    "Please wait — someone will be with you shortly."
+    "Please wait -- someone will be with you shortly."
 )
 
 # ── Color roles ───────────────────────────────────────────────────────────────

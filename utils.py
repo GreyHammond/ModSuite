@@ -1,5 +1,5 @@
 """
-utils.py — ModSuite shared helpers.
+utils.py -- ModSuite shared helpers.
 
 Permission hierarchy (highest → lowest):
   Server Owner  >  Administrator  >  Owner Role  >  Mod Role  >  Regular Member
@@ -44,15 +44,15 @@ def can_moderate(actor: discord.Member | None, target: discord.Member, guild_con
       Server Owner        ✅       ✅        ✅     ❌
       Bot (actor=None)    ✅       ✅        ✅     ❌
     """
-    # Nobody — including the bot — acts on the server owner
+    # Nobody -- including the bot -- acts on the server owner
     if target.id == target.guild.owner_id:
         return False
 
-    # Automated bot action — allow everything except server owner (handled above)
+    # Automated bot action -- allow everything except server owner (handled above)
     if actor is None:
         return True
 
-    # Target is a protected member — apply role-level restrictions
+    # Target is a protected member -- apply role-level restrictions
     if is_protected(target, guild_config):
         mod_role_id = guild_config.get("mod_role_id")
         actor_is_only_mod = (

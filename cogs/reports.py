@@ -74,7 +74,7 @@ class Reports(commands.Cog):
         owner_role = interaction.guild.get_role(cfg.get("owner_role_id")) if cfg else None
 
         embed = discord.Embed(
-            title="🚨 EMERGENCY REPORT — ALL STAFF REQUIRED",
+            title="🚨 EMERGENCY REPORT -- ALL STAFF REQUIRED",
             description="⚠️ **This report has been flagged as an emergency. Immediate attention required.** ⚠️",
             color=discord.Color.red(),
             timestamp=datetime.utcnow(),

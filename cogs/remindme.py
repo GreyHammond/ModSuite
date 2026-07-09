@@ -1,5 +1,5 @@
 """
-cogs/remindme.py — Personal reminder system with timezone support.
+cogs/remindme.py -- Personal reminder system with timezone support.
 Commands: /timezone, /remindme, /reminders
 """
 
@@ -265,7 +265,7 @@ class RegionSelectView(discord.ui.View):
             pending_msg=self.pending_msg,
         )
         await interaction.response.edit_message(
-            content=f"**{region}** — now pick your city:",
+            content=f"**{region}** -- now pick your city:",
             view=view,
         )
 
@@ -375,7 +375,7 @@ def _build_reminders_embed(
         delta   = fire_dt - now
         delta_s = _fmt_delta(delta) if delta.total_seconds() > 0 else "soon"
         msg_preview = r["message"][:40] + ("…" if len(r["message"]) > 40 else "")
-        lines.append(f"**#{r['reminder_id']}** — in {delta_s} — \"{msg_preview}\"")
+        lines.append(f"**#{r['reminder_id']}** -- in {delta_s} -- \"{msg_preview}\"")
 
     embed.description = "\n".join(lines)
     embed.set_footer(text="Use the buttons below to cancel a reminder.")
@@ -491,17 +491,17 @@ class RemindMe(commands.Cog):
             )
             return
 
-        # Absolute time — need timezone
+        # Absolute time -- need timezone
         prefs = db.get_user_prefs(user_id)
 
         if prefs:
-            # Timezone already set — parse and save
+            # Timezone already set -- parse and save
             await self._save_absolute_reminder(
                 interaction, time, message, prefs["timezone"],
                 guild_id, chan_id,
             )
         else:
-            # Timezone not set — gate with picker, then auto-save
+            # Timezone not set -- gate with picker, then auto-save
             async def _on_tz_set(itr: discord.Interaction, iana: str):
                 now_local = datetime.now(ZoneInfo(iana))
                 time_str  = now_local.strftime("%-I:%M %p %Z")
@@ -582,7 +582,7 @@ class RemindMe(commands.Cog):
             datetime.fromisoformat(fire_iso).strftime("%A, %B %-d at %-I:%M %p UTC")
         embed.add_field(name="Message", value=f'"{message}"', inline=False)
         embed.add_field(name="Fires",   value=f"{fire_friendly}\n(in {delta_s})", inline=False)
-        embed.set_footer(text=f"ID: #{rid}  —  use /reminders to view or cancel")
+        embed.set_footer(text=f"ID: #{rid}  --  use /reminders to view or cancel")
         return embed
 
     # ── /reminders ────────────────────────────────────────────────────────────

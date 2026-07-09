@@ -46,7 +46,7 @@ class SelfRoles(commands.Cog):
             str(payload.guild_id), str(payload.message_id)
         )
         if category is None:
-            return  # Not a self-roles message — ignore entirely
+            return  # Not a self-roles message -- ignore entirely
 
         guild = self.bot.get_guild(payload.guild_id)
         if guild is None:
@@ -60,7 +60,7 @@ class SelfRoles(commands.Cog):
         role_row  = next((r for r in roles if r["emoji"] == emoji_key), None)
 
         if role_row is None:
-            # Emoji not mapped to any role in this category — remove it
+            # Emoji not mapped to any role in this category -- remove it
             await self._remove_unknown_reaction(
                 guild, payload.channel_id, payload.message_id, payload.emoji, member
             )
@@ -123,7 +123,7 @@ class SelfRoles(commands.Cog):
         roles     = db.get_selfrole_roles(category["category_id"])
         role_row  = next((r for r in roles if r["emoji"] == emoji_key), None)
         if role_row is None:
-            return  # Emoji not mapped — nothing to remove
+            return  # Emoji not mapped -- nothing to remove
 
         role = guild.get_role(int(role_row["role_id"]))
         if role and role in member.roles:

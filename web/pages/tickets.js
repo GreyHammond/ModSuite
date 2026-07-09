@@ -250,7 +250,7 @@ function ticketCardHTML(t) {
       <div class="tk-body">
         <div class="tk-head">
           <span class="tk-opener">${esc(opener)}</span>
-          <span class="tk-subject">— Ticket #${id}</span>
+          <span class="tk-subject">-- Ticket #${id}</span>
           <span class="badge badge-${statusKey}" style="flex-shrink:0">${urgent ? 'Urgent' : cap(t.status || 'open')}</span>
         </div>
         <div class="tk-meta">
@@ -287,7 +287,7 @@ function composerHTML(id) {
         <input type="checkbox" id="tk-anon-${id}"> Anonymous ("Staff")
       </label>
     </div>
-    <textarea class="tk-reply-ta" id="tk-reply-${id}" placeholder="Type a reply — the user will receive it as a DM…"></textarea>
+    <textarea class="tk-reply-ta" id="tk-reply-${id}" placeholder="Type a reply -- the user will receive it as a DM…"></textarea>
     <div class="tk-composer-actions">
       <button class="btn btn-primary" id="tk-send-${id}" disabled>Send reply</button>
       <button class="btn btn-danger"  id="tk-close-${id}">Close ticket</button>
@@ -362,7 +362,7 @@ function wireComposer(card, ticketId) {
       status.className = 'tk-status ok';
       status.textContent = `Queued (action #${res.action_id}). DM will send within a few seconds.`;
       ta.value = '';
-      // Invalidate transcript cache — reload after a delay
+      // Invalidate transcript cache -- reload after a delay
       setTimeout(async () => {
         _transcripts.delete(ticketId);
         await loadTranscript(ticketId, card);
@@ -432,7 +432,7 @@ function errState() {
 const cap = s => String(s).charAt(0).toUpperCase() + String(s).slice(1);
 const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function ago(d) {
-  if (!d) return '—';
+  if (!d) return '--';
   const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
   if (m < 1) return 'just now';
   if (m < 60) return `${m}m ago`;

@@ -1,5 +1,5 @@
 """
-cogs/reactmessage.py — React Message Builder
+cogs/reactmessage.py -- React Message Builder
 Allows admins to create, edit, and publish custom reaction-role messages
 entirely through Discord slash commands.
 """
@@ -12,10 +12,10 @@ from datetime import datetime
 
 import database as db
 
-DRAFT_COLOR    = 0xF0B429  # Yellow — DRAFT
-PUBLISH_COLOR  = 0xD4A843  # Gold  — live
+DRAFT_COLOR    = 0xF0B429  # Yellow -- DRAFT
+PUBLISH_COLOR  = 0xD4A843  # Gold  -- live
 FOOTER_BRAND   = "ModSuite · Hammond Digital Studios"
-FOOTER_DRAFT   = "🔧 DRAFT — not yet published  |  /publishreactmessage to go live  |  /cancelreactmessage to discard"
+FOOTER_DRAFT   = "🔧 DRAFT -- not yet published  |  /publishreactmessage to go live  |  /cancelreactmessage to discard"
 
 # Preset role colours for the creation prompt
 PRESET_COLORS = {
@@ -41,7 +41,7 @@ def _build_draft_embed(draft: dict, roles: list[dict]) -> discord.Embed:
 
     if roles:
         role_lines = "\n".join(
-            f"{r['emoji']} <@&{r['role_id']}> — {'[single]' if r['toggle'] else '[multi]'}"
+            f"{r['emoji']} <@&{r['role_id']}> -- {'[single]' if r['toggle'] else '[multi]'}"
             for r in roles
         )
         if body:
@@ -49,7 +49,7 @@ def _build_draft_embed(draft: dict, roles: list[dict]) -> discord.Embed:
         else:
             body = role_lines
     else:
-        suffix = "\n\nNo roles added yet — use /addrole to begin."
+        suffix = "\n\nNo roles added yet -- use /addrole to begin."
         body = (body + suffix) if body else suffix.strip()
 
     embed.description = body
@@ -320,7 +320,7 @@ class ReactMessage(commands.Cog):
         """Open the create modal. Works whether interaction is fresh or a button callback."""
         modal = CreateReactMessageModal(self.bot)
         if interaction.response.is_done():
-            # Called from a button callback — use followup modal workaround
+            # Called from a button callback -- use followup modal workaround
             # (we can't send a modal from a followup, so send an ephemeral prompt)
             await interaction.followup.send(
                 "Opening creation modal…", ephemeral=True
@@ -649,7 +649,7 @@ class ReactMessage(commands.Cog):
             await interaction.response.defer(ephemeral=True)
             await self._do_publish(interaction, draft, roles, target_channel_id=draft["target_channel_id"])
         else:
-            # New message — ask where to publish
+            # New message -- ask where to publish
             async def _on_channel_selected(itr: discord.Interaction, channel):
                 await itr.response.defer(ephemeral=True)
                 await self._do_publish(itr, draft, roles, target_channel_id=str(channel.id))

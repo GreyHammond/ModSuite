@@ -1,4 +1,4 @@
-# ModSuite v2.5 — Deploy Guide
+# ModSuite v2.5 -- Deploy Guide
 
 ## ⚠️ Read First
 
@@ -7,11 +7,11 @@
 cp /path/to/modsuite_v2/communitybot.db /path/to/modsuite_v2/communitybot.db.pre-v25.bak
 ```
 
-The v2.5 package does **not** include a `.db` file or a `venv/` — those are yours and must not be overwritten.
+The v2.5 package does **not** include a `.db` file or a `venv/` -- those are yours and must not be overwritten.
 
 ---
 
-## Deploy — Fresh install
+## Deploy -- Fresh install
 
 If ModSuite isn't installed yet, extract the zip and follow the README:
 
@@ -22,11 +22,11 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# edit .env — paste DISCORD_TOKEN
+# edit .env -- paste DISCORD_TOKEN
 python bot.py
 ```
 
-## Deploy — Upgrading from any earlier version
+## Deploy -- Upgrading from any earlier version
 
 The safest process, keeping your DB intact:
 
@@ -53,7 +53,7 @@ The safest process, keeping your DB intact:
      ./ /home/hammond/MothMail/modsuite_v2/
    ```
 
-   Or manually — copy `api.py`, `bot.py`, `database.py`, `config.py`, `utils.py`, `requirements.txt`, `README.md`, `CHANGELOG.md`, plus the whole `cogs/` and `web/` folders. Leave `.env`, `venv/`, and `communitybot.db*` alone.
+   Or manually -- copy `api.py`, `bot.py`, `database.py`, `config.py`, `utils.py`, `requirements.txt`, `README.md`, `CHANGELOG.md`, plus the whole `cogs/` and `web/` folders. Leave `.env`, `venv/`, and `communitybot.db*` alone.
 
 4. **Install any new dependencies:**
    ```bash
@@ -73,13 +73,13 @@ The safest process, keeping your DB intact:
    - `sudo ss -tlnp | grep 8000` should show Python listening.
    - Hard-refresh the dashboard: `Ctrl+Shift+R` at `http://127.0.0.1:8000/`.
 
-The database schema migrates itself on first start after any code update — no manual SQL. Any new config columns added in v2.2 (AutoMod, raid upgrades) and v2.5 (schema unchanged, but you get the point) appear automatically.
+The database schema migrates itself on first start after any code update -- no manual SQL. Any new config columns added in v2.2 (AutoMod, raid upgrades) and v2.5 (schema unchanged, but you get the point) appear automatically.
 
 ---
 
 ## What changed in v2.5 vs your current install
 
-Two files if you're on v2.2 and only want the additions: **`api.py`** and **`bot.py`** carry all backend changes. Every `web/pages/*.js` file except `setup.js` and `selfroles.js` was rewritten. **`web/api.js`** is important — this fixes the CORS issue where the dashboard couldn't talk to itself.
+Two files if you're on v2.2 and only want the additions: **`api.py`** and **`bot.py`** carry all backend changes. Every `web/pages/*.js` file except `setup.js` and `selfroles.js` was rewritten. **`web/api.js`** is important -- this fixes the CORS issue where the dashboard couldn't talk to itself.
 
 If you want the minimum change footprint instead of a full deploy, cherry-pick:
 - `api.py`
@@ -105,12 +105,12 @@ If anything goes wrong:
 cp communitybot.db.pre-v25.bak communitybot.db
 
 # If you kept your old files (recommended), copy them back over
-# The bot is designed to run fine on the schema — older code + newer DB works.
+# The bot is designed to run fine on the schema -- older code + newer DB works.
 ```
 
 ---
 
-## After deploy — try these
+## After deploy -- try these
 
 - Dashboard tab → look for the trend line, top offenders, and bot health card
 - Configuration tab → 7 section tabs, edit anything, hit Save

@@ -1,5 +1,5 @@
 """
-cogs/starboard.py — Customisable multi-board starboard system.
+cogs/starboard.py -- Customisable multi-board starboard system.
 Multiple named boards, each with their own emoji triggers, channels, and thresholds.
 Self-reacts are ignored. NSFW boards only pull from NSFW channels.
 On edit: logs original to mod-log, updates board embed with edit notice.
@@ -356,7 +356,7 @@ class Starboard(commands.Cog):
             # Log original content to mod-log
             if entry["original_content"] and entry["original_content"] != message.content:
                 log_embed = discord.Embed(
-                    title="✏️ Starboard — Original Message Edited",
+                    title="✏️ Starboard -- Original Message Edited",
                     color=0xE67E22,
                     timestamp=datetime.utcnow(),
                 )

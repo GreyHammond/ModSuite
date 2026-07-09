@@ -1,5 +1,5 @@
 /* ============================================================
-   ModSuite — GitHub Pages site
+   ModSuite -- GitHub Pages site
    Interactive: live activity console + command search
    ============================================================ */
 
@@ -8,16 +8,16 @@ const consoleFeed = [
   {
     type: "good",
     title: "Ticket opened",
-    body: "New ModMail ticket from <strong>@sable</strong> — <strong>#ticket-sable</strong> created, staff notified.",
+    body: "New ModMail ticket from <strong>@sable</strong> -- <strong>#ticket-sable</strong> created, staff notified.",
   },
   {
     type: "warn",
-    title: "AutoMod — Message velocity",
+    title: "AutoMod -- Message velocity",
     body: "<strong>@newcomer42</strong> sent 6 messages in 8s. Deleted + muted 10m.",
   },
   {
     type: "warn",
-    title: "AutoMod — Link filter (whitelist)",
+    title: "AutoMod -- Link filter (whitelist)",
     body: "Blocked link to <strong>grabify.link</strong> in <strong>#lounge</strong>. Deleted + muted.",
   },
   {
@@ -27,7 +27,7 @@ const consoleFeed = [
   },
   {
     type: "warn",
-    title: "Raid — new joiner blocked",
+    title: "Raid -- new joiner blocked",
     body: "<strong>skibidi_bot_9182</strong> kicked on join (lockdown active).",
   },
   {
@@ -37,7 +37,7 @@ const consoleFeed = [
   },
   {
     type: "warn",
-    title: "AutoMod — Duplicate spam",
+    title: "AutoMod -- Duplicate spam",
     body: "<strong>@spammer</strong> sent same message ×3. Deleted + muted 10m.",
   },
   {
@@ -57,12 +57,12 @@ const consoleFeed = [
   },
   {
     type: "warn",
-    title: "AutoMod — Mention flood",
+    title: "AutoMod -- Mention flood",
     body: "<strong>@pinger</strong> pinged 7 members in one message. Deleted + muted.",
   },
   {
     type: "warn",
-    title: "Suspicious join — young account",
+    title: "Suspicious join -- young account",
     body: "<strong>new_user_004</strong> account is 2d old (min: 7d). Flagged in log.",
   },
 ];
@@ -311,7 +311,7 @@ function initCopyable() {
         const original = pre.style.borderColor;
         pre.style.borderColor = "var(--mint)";
         setTimeout(() => { pre.style.borderColor = original; }, 800);
-      } catch (e) { /* clipboard blocked — silent fail */ }
+      } catch (e) { /* clipboard blocked -- silent fail */ }
     });
   });
 }
