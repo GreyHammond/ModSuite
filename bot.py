@@ -55,6 +55,7 @@ class CommunityBot(commands.Bot):
             "cogs.violations",
             "cogs.profiles",
             "cogs.namefilter",
+            "cogs.autoresponse",
         ]
         for cog in cogs:
             await self.load_extension(cog)

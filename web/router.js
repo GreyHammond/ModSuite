@@ -2,14 +2,15 @@ import { buildLayout, setPageTitle, setActiveNav } from './shell/layout.js';
 
 // All 9 routes. Agent 4 fills configuration / selfroles / setup page components.
 const ROUTES = {
-  dashboard:     { title: 'Dashboard',     loader: () => import('./pages/dashboard.js') },
-  modlogs:       { title: 'Mod Logs',      loader: () => import('./pages/modlogs.js') },
-  warns:         { title: 'Warns',         loader: () => import('./pages/warns.js') },
-  notes:         { title: 'Notes',         loader: () => import('./pages/notes.js') },
-  tickets:       { title: 'Tickets',       loader: () => import('./pages/tickets.js') },
-  configuration: { title: 'Configuration', loader: () => import('./pages/configuration.js') },
-  selfroles:     { title: 'Self Roles',    loader: () => import('./pages/selfroles.js') },
-  setup:         { title: 'Setup',         loader: () => import('./pages/setup.js') },
+  dashboard:       { title: 'Dashboard',       loader: () => import('./pages/dashboard.js') },
+  modlogs:         { title: 'Mod Logs',        loader: () => import('./pages/modlogs.js') },
+  warns:           { title: 'Warns',           loader: () => import('./pages/warns.js') },
+  notes:           { title: 'Notes',           loader: () => import('./pages/notes.js') },
+  tickets:         { title: 'Tickets',         loader: () => import('./pages/tickets.js') },
+  autoresponses:   { title: 'Autoresponses',   loader: () => import('./pages/autoresponses.js') },
+  configuration:   { title: 'Configuration',   loader: () => import('./pages/configuration.js') },
+  selfroles:       { title: 'Self Roles',      loader: () => import('./pages/selfroles.js') },
+  setup:           { title: 'Setup',           loader: () => import('./pages/setup.js') },
 };
 
 const DEFAULT = 'dashboard';

@@ -1309,6 +1309,92 @@ async def close_ticket(ticket_id: int, guild_id: Optional[str] = None):
     return {"queued": True, "action_id": action_id}
 
 
+# =============================================================================
+# -- Autoresponses CRUD -------------------------------------------------------
+# =============================================================================
+
+class AutoResponseCreate(BaseModel):
+    trigger: str
+    response: str
+    match_mode: str = "contains"
+
+
+class AutoResponseUpdate(BaseModel):
+    trigger: Optional[str] = None
+    response: Optional[str] = None
+    match_mode: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@app.get("/autoresponses")
+async def get_autoresponses(guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    rows = db.get_autoresponses(gid)
+    return [
+        {
+            "id":         r["id"],
+            "trigger":    r["trigger"],
+            "response":   r["response"],
+            "match_mode": r.get("match_mode", "contains"),
+            "enabled":    bool(r.get("enabled", 1)),
+            "created_at": _fmt_ts(r.get("created_at")),
+        }
+        for r in rows
+    ]
+
+
+@app.post("/autoresponses", status_code=201)
+async def create_autoresponse(body: AutoResponseCreate, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    trigger = body.trigger.strip().lower()
+    response = body.response.strip()
+    if not trigger or not response:
+        _err(400, "Both trigger and response are required.")
+    if body.match_mode not in ("contains", "exact", "startswith"):
+        _err(400, "match_mode must be 'contains', 'exact', or 'startswith'.")
+
+    try:
+        ar_id = db.add_autoresponse(gid, trigger, response, body.match_mode)
+    except Exception:
+        _err(409, f"A trigger for '{trigger}' already exists.")
+
+    return {"id": ar_id, "created": True}
+
+
+@app.put("/autoresponses/{ar_id}")
+async def update_autoresponse(ar_id: int, body: AutoResponseUpdate, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    existing = db.get_autoresponse(ar_id)
+    if not existing or str(existing["guild_id"]) != str(gid):
+        _err(404, f"Autoresponse #{ar_id} not found.")
+
+    updates = {}
+    if body.trigger is not None:
+        updates["trigger"] = body.trigger.strip().lower()
+    if body.response is not None:
+        updates["response"] = body.response.strip()
+    if body.match_mode is not None:
+        if body.match_mode not in ("contains", "exact", "startswith"):
+            _err(400, "match_mode must be 'contains', 'exact', or 'startswith'.")
+        updates["match_mode"] = body.match_mode
+    if body.enabled is not None:
+        updates["enabled"] = 1 if body.enabled else 0
+
+    if updates:
+        db.update_autoresponse(ar_id, **updates)
+    return {"id": ar_id, "updated": True}
+
+
+@app.delete("/autoresponses/{ar_id}")
+async def delete_autoresponse(ar_id: int, guild_id: Optional[str] = None):
+    gid = _resolve_guild_id(guild_id)
+    existing = db.get_autoresponse(ar_id)
+    if not existing or str(existing["guild_id"]) != str(gid):
+        _err(404, f"Autoresponse #{ar_id} not found.")
+    db.delete_autoresponse(ar_id)
+    return {"id": ar_id, "deleted": True}
+
+
 # ── Web dashboard mount ───────────────────────────────────────────────────────
 # Static file serving has moved into auth.py -> register_auth() so that
 # /auth/* routes are registered BEFORE the catch-all "/" mount.

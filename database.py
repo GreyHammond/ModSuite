@@ -411,6 +411,17 @@ def init_db():
                 built_in    INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(guild_id, name)
             );
+
+            CREATE TABLE IF NOT EXISTS autoresponses (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id    TEXT    NOT NULL,
+                trigger     TEXT    NOT NULL,
+                response    TEXT    NOT NULL,
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                match_mode  TEXT    NOT NULL DEFAULT 'contains',
+                created_at  TEXT    NOT NULL,
+                UNIQUE(guild_id, trigger)
+            );
         """)
 
         # Migrate selfrole_roles -- add toggle column if missing
@@ -1797,3 +1808,53 @@ def get_effective_config(guild_id: int) -> dict:
         cfg = dict(cfg)  # copy so we don't mutate the cached version
         cfg.update(profile["overrides"])
     return cfg
+
+
+# -- Autoresponses ---------------------------------------------------------------
+
+def add_autoresponse(guild_id: str, trigger: str, response: str, match_mode: str = "contains") -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO autoresponses (guild_id, trigger, response, match_mode, created_at) VALUES (?, ?, ?, ?, ?)",
+            (guild_id, trigger.lower(), response, match_mode, datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_autoresponses(guild_id: str, enabled_only: bool = False) -> list[dict]:
+    with get_conn() as conn:
+        if enabled_only:
+            rows = conn.execute(
+                "SELECT * FROM autoresponses WHERE guild_id = ? AND enabled = 1 ORDER BY trigger",
+                (guild_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM autoresponses WHERE guild_id = ? ORDER BY trigger",
+                (guild_id,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_autoresponse(ar_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM autoresponses WHERE id = ?", (ar_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_autoresponse(ar_id: int, **kwargs) -> bool:
+    if not kwargs:
+        return False
+    sets = ", ".join(f"{k} = ?" for k in kwargs)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE autoresponses SET {sets} WHERE id = ?",
+            (*kwargs.values(), ar_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_autoresponse(ar_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM autoresponses WHERE id = ?", (ar_id,))
+        return cur.rowcount > 0

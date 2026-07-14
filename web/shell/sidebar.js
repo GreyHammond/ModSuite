@@ -2,15 +2,16 @@ import { closeSidebar } from './layout.js';
 import { apiFetch } from '../api.js';
 
 const NAV = [
-  { key: 'dashboard',     label: 'Dashboard',    icon: iGrid()    },
-  { key: 'modlogs',       label: 'Mod Logs',     icon: iList()    },
-  { key: 'warns',         label: 'Warns',        icon: iWarn()    },
-  { key: 'notes',         label: 'Notes',        icon: iBookmark() },
-  { key: 'tickets',       label: 'Tickets',      icon: iMessage(), badge: true },
+  { key: 'dashboard',     label: 'Dashboard',      icon: iGrid()    },
+  { key: 'modlogs',       label: 'Mod Logs',       icon: iList()    },
+  { key: 'warns',         label: 'Warns',          icon: iWarn()    },
+  { key: 'notes',         label: 'Notes',          icon: iBookmark() },
+  { key: 'tickets',       label: 'Tickets',        icon: iMessage(), badge: true },
+  { key: 'autoresponses', label: 'Autoresponses',  icon: iReply()   },
   null,
-  { key: 'configuration', label: 'Configuration',icon: iSettings() },
-  { key: 'selfroles',     label: 'Self Roles',   icon: iTag()     },
-  { key: 'setup',         label: 'Setup',        icon: iSetup()   },
+  { key: 'configuration', label: 'Configuration',  icon: iSettings() },
+  { key: 'selfroles',     label: 'Self Roles',     icon: iTag()     },
+  { key: 'setup',         label: 'Setup',          icon: iSetup()   },
 ];
 
 export function buildSidebar(el) {
@@ -168,6 +169,7 @@ function iMessage() { return svg(`<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 01
 function iSettings() { return svg(`<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>`); }
 function iTag() { return svg(`<path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>`); }
 function iSetup() { return svg(`<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>`); }
+function iReply() { return svg(`<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>`); }
 function svg(paths) {
   return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
 }

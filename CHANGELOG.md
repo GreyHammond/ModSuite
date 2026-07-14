@@ -5,6 +5,40 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [3.1.0] -- 2026-07-09
+
+### Autoresponses
+
+**Trigger-based automatic replies** (new cog: `cogs/autoresponse.py`):
+- Admins define trigger words/phrases and the bot auto-replies when detected in any message
+- Three match modes: contains (trigger appears anywhere), exact (full message match), startswith (message begins with trigger)
+- Case-insensitive matching; only the first matched trigger fires per message
+- Enable/disable individual autoresponses without deleting them
+- Staff and bot messages are excluded from triggering
+
+**Dashboard page** (`web/pages/autoresponses.js`):
+- New "Autoresponses" page in the sidebar navigation
+- Create, edit, toggle, and delete autoresponses from the web dashboard
+- Expandable cards show full response text and inline editing
+- Match mode selector and enable/disable toggle per entry
+
+**REST API** (new endpoints in `api.py`):
+- `GET /autoresponses` -- list all autoresponses for the guild
+- `POST /autoresponses` -- create a new trigger/response pair
+- `PUT /autoresponses/{id}` -- update trigger, response, match mode, or enabled state
+- `DELETE /autoresponses/{id}` -- remove an autoresponse
+
+**Slash commands**:
+- `/autoresponse add <trigger> <response> [match_mode]` -- add a new autoresponse
+- `/autoresponse remove <trigger>` -- remove by trigger text
+- `/autoresponse list` -- list all autoresponses for the server
+
+**Database**:
+- New `autoresponses` table with auto-migration on startup
+- Unique constraint on (guild_id, trigger) prevents duplicates
+
+---
+
 ## [3.0.0] -- 2026-07-08
 
 ### Phase 4: Name filtering, verification gate, all-caps filter

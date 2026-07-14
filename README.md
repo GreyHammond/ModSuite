@@ -55,6 +55,9 @@ Checks display names on join and nickname change. Configurable word list with Un
 ### Verification Gate (v3.0)
 New members must react to a posted verification message to gain a configured role. Until verified, they lack the gate role and server permissions control what they can see.
 
+### Autoresponses (v3.1)
+Define trigger words or phrases and the bot auto-replies when detected. Three match modes (contains, exact, starts with). Manageable via the dashboard or `/autoresponse` slash commands. Individual triggers can be enabled/disabled without deleting them.
+
 ### Onboarding and Roles
 Guided `/setup`, 14 color self-roles, custom react-role menus, auto-role on join, welcome messages.
 
@@ -89,6 +92,7 @@ The dashboard runs alongside the bot in the same process on `127.0.0.1:8000`. No
 | **Warns** | Grouped per user, pardon, add-warn with type-ahead |
 | **Notes** | Search, inline edit, add-note with type-ahead |
 | **Tickets** | Open/closed/all filters, inline transcript viewer, reply, close |
+| **Autoresponses** | Create, edit, toggle, delete trigger/response pairs with match mode selection |
 | **Configuration** | Sectioned editor over ~120 columns, Bot Messages editor, Post-as-Bot |
 | **Self-Roles** | Category builder with live preview |
 | **Setup** | Guided setup mirror of `/setup` |
@@ -242,6 +246,9 @@ Then browse to `http://127.0.0.1:8000/`.
 ### Verification Gate
 `/verifygate toggle` | `role` | `channel` | `post` | `status`
 
+### Autoresponses
+`/autoresponse add` | `remove` | `list`
+
 ### React Roles
 `/createreactmessage`, `/addrole`, `/editrole`, `/deleterole`, `/editreactmessage`, `/publishreactmessage`, `/cancelreactmessage`
 
@@ -297,6 +304,7 @@ ModSuite/
 |-- cogs/                # 25 cogs
 |   |-- setup.py         # /setup wizard + 13 config panels
 |   |-- automod.py       # 8-filter message pipeline
+|   |-- autoresponse.py  # Trigger-based automatic replies
 |   |-- violations.py    # Violation counter engine
 |   |-- profiles.py      # Severity profile management
 |   |-- namefilter.py    # Username/nickname filter + verification gate
