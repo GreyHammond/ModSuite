@@ -863,3 +863,27 @@ body > * { position: relative; z-index: 1; }
   outline-offset: 3px;
   border-radius: 3px;
 }
+
+/* ── Dashboard section lists (v4.1) ──────────────────────────────────────── */
+.step-body ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  max-width: 640px;
+}
+.step-body ul li {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  padding-left: 18px;
+  position: relative;
+}
+.step-body ul li::before {
+  content: "\25B9";
+  position: absolute;
+  left: 0;
+  color: var(--accent-dim);
+}
+#dashboard .feature-grid { margin-top: 0; }

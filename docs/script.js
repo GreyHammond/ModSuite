@@ -1,5 +1,5 @@
 /* ============================================================
-   ModSuite v3.0 -- GitHub Pages site
+   ModSuite v4.1 -- GitHub Pages site
    Interactive: live activity console + command search
    ============================================================ */
 
@@ -170,6 +170,14 @@ const commands = [
   { name: "/setautojail",       cat: "jail",       desc: "Configure automatic jail thresholds." },
 
   // Notes
+  // ── Booster rewards (v4.1) ──
+  { name: "/booster setup",     cat: "boosters",   desc: "Name the permanent role granted on a member's first boost. Refuses Discord's own booster role and any role above the bot." },
+  { name: "/booster sync",      cat: "boosters",   desc: "Grant the role to everyone currently boosting, and restore it to anyone with a record who had it removed by hand." },
+  { name: "/booster list",      cat: "boosters",   desc: "Who earned the permanent role, who is still boosting, and who is keeping perks without boosting." },
+  { name: "/booster grant",     cat: "boosters",   desc: "Manually grant permanent booster perks, with a reason recorded against the grant." },
+  { name: "/booster revoke",    cat: "boosters",   desc: "Remove permanent perks for abuse cases. Records actor and reason, writes to the mod log, keeps the row." },
+  { name: "/booster off",       cat: "boosters",   desc: "Stop granting the permanent role. Nothing already earned is touched." },
+
   { name: "/note",              cat: "notes",      desc: "Add a private staff note. Never shown to the subject." },
   { name: "/notes",             cat: "notes",      desc: "List all active staff notes for a user." },
   { name: "/delnote",           cat: "notes",      desc: "Soft-delete a note by ID." },
@@ -367,6 +375,7 @@ const catLabels = {
   raid:       "Raid",
   honeypot:   "Honeypot",
   reactrole:  "React Roles",
+  boosters:   "Boosters",
   starboard:  "Starboard",
   streamer:   "Streamer",
   reminders:  "Reminders",

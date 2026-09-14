@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ModSuite v4.0 -- Discord community &amp; moderation platform</title>
-  <meta name="description" content="ModSuite is a self-hosted, all-in-one Discord bot with a violation engine, 8-filter automod pipeline, severity profiles, role persistence, and a web dashboard. Built by Hammond Digital Studios.">
+  <title>ModSuite v4.1 -- Discord community &amp; moderation platform</title>
+  <meta name="description" content="ModSuite is a self-hosted, all-in-one Discord bot and web dashboard: violation engine, 8-filter automod pipeline, severity profiles, server blueprints, unified audit trail, message archive, and permanent booster rewards. Built by Hammond Digital Studios.">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,12 +20,13 @@
     <a href="#top" class="brand">
       <span class="brand-mark">&#9670;</span>
       <span class="brand-name">ModSuite</span>
-      <span class="brand-version">v4.0</span>
+      <span class="brand-version">v4.1</span>
     </a>
     <nav class="topbar-nav">
       <a href="#features">Features</a>
       <a href="#pipeline">Pipeline</a>
       <a href="#setup">Setup</a>
+      <a href="#dashboard">Dashboard</a>
       <a href="#commands">Commands</a>
       <a href="#changelog">Changelog</a>
       <a href="https://github.com/GreyHammond/ModSuite" class="topbar-cta">GitHub &#8599;</a>
@@ -56,10 +57,10 @@
         <a href="https://github.com/GreyHammond/ModSuite" class="btn btn-secondary">View source</a>
       </div>
       <ul class="hero-stats">
-        <li><span class="stat-num">25</span><span class="stat-label">cogs</span></li>
-        <li><span class="stat-num">116</span><span class="stat-label">slash commands</span></li>
+        <li><span class="stat-num">34</span><span class="stat-label">cogs</span></li>
+        <li><span class="stat-num">157</span><span class="stat-label">slash commands</span></li>
         <li><span class="stat-num">8</span><span class="stat-label">automod filters</span></li>
-        <li><span class="stat-num">39</span><span class="stat-label">api endpoints</span></li>
+        <li><span class="stat-num">111</span><span class="stat-label">api endpoints</span></li>
       </ul>
     </div>
 
@@ -110,7 +111,7 @@
     <div class="card">
       <div class="card-icon">&#128421;</div>
       <h3>Web Dashboard</h3>
-      <p>Vanilla-JS SPA on a FastAPI backend. 39 endpoints, 13-row AutoMod status card, 19 activity feed types. No build step. No framework tax.</p>
+      <p>Vanilla-JS SPA on a FastAPI backend. 111 endpoints, 13-row AutoMod status card, 19 activity feed types. No build step. No framework tax.</p>
     </div>
   </div>
 </section>
@@ -328,6 +329,15 @@
       </article>
 
       <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Booster Rewards <span class="badge-new">v4.1</span></h3></header>
+        <ul>
+          <li>A <strong>separate, permanent role</strong> granted on a member's first boost</li>
+          <li>Discord strips its own booster role the moment someone stops -- this one stays</li>
+          <li>The database row is the source of truth, so the role is restored on rejoin</li>
+          <li>Backfill current boosters, manual grant, audited revoke for abuse cases</li>
+        </ul>
+      </article>
+      <article class="feature">
         <header><span class="feature-num">&#9656;</span><h3>Community</h3></header>
         <ul>
           <li>Multi-emoji starboard with configurable threshold</li>
@@ -378,6 +388,7 @@ pip install -r requirements.txt</code></pre>
           <pre class="code" data-copy><code>cp .env.example .env
 # Edit .env -- at minimum set DISCORD_TOKEN
 # Optional: CORS_ORIGINS, API_HOST, API_PORT, Twitch keys, OAuth2</code></pre>
+          <p>That is enough to run the bot and open the dashboard on the same machine. To reach it from anywhere else, see <a href="#dashboard">connecting the dashboard</a> below.</p>
         </div>
       </li>
       <li class="step">
@@ -406,14 +417,161 @@ pip install -r requirements.txt</code></pre>
   </div>
 </section>
 
+<!-- ============ DASHBOARD / NETWORKING ============ -->
+<section id="dashboard" class="setup">
+  <div class="section-inner">
+    <div class="section-header">
+      <div class="section-eyebrow">04 -- Connecting the dashboard</div>
+      <h2>Getting the browser talking to the bot.</h2>
+      <p class="section-lede">
+        The dashboard is served by the same process as the bot. Locally it just works.
+        Everything below is about reaching it from somewhere else -- which is where
+        CORS, the OAuth redirect, and two separate firewalls all get a vote.
+      </p>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <div class="step-num">01</div>
+        <div class="step-body">
+          <h3>Local first -- confirm it works before you open anything</h3>
+          <p>With the bot running, open <code>http://localhost:8000</code> on the same machine.
+          If that fails, nothing about firewalls or CORS will fix it -- check the startup log first.</p>
+          <pre class="code" data-copy><code>API_HOST=0.0.0.0
+API_PORT=8000
+DISCORD_REDIRECT_URI=http://localhost:8000/auth/callback</code></pre>
+          <p>Localhost origins are always allowed, so <code>CORS_ORIGINS</code> can stay empty here.</p>
+        </div>
+      </li>
+
+      <li class="step">
+        <div class="step-num">02</div>
+        <div class="step-body">
+          <h3>Open the port -- in two places, not one</h3>
+          <p>On a cloud host there are two firewalls between you and port 8000, and both have to allow it.
+          Opening only the provider one is the single most common reason the page never loads.</p>
+          <p><strong>Host firewall</strong></p>
+          <pre class="code" data-copy><code># Ubuntu / Debian
+sudo ufw allow 8000/tcp
+
+# RHEL / Fedora / Alma
+sudo firewall-cmd --add-port=8000/tcp --permanent &amp;&amp; sudo firewall-cmd --reload
+
+# Raw iptables (Oracle Cloud images need this even with ufw installed)
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 8000 -j ACCEPT
+sudo netfilter-persistent save</code></pre>
+          <p><strong>Provider firewall</strong> -- ingress on TCP 8000 from <code>0.0.0.0/0</code>:</p>
+          <ul class="plain">
+            <li><strong>Oracle Cloud</strong> -- Networking &rsaquo; VCN &rsaquo; Security Lists &rsaquo; Default &rsaquo; Add Ingress Rule</li>
+            <li><strong>AWS</strong> -- EC2 &rsaquo; Security Groups &rsaquo; Inbound rules</li>
+            <li><strong>Google Cloud</strong> -- VPC network &rsaquo; Firewall &rsaquo; Create firewall rule</li>
+            <li><strong>Azure</strong> -- Network security group &rsaquo; Inbound security rules</li>
+            <li><strong>DigitalOcean / Vultr / Linode / Hetzner</strong> -- Cloud Firewall in the control panel, if you created one</li>
+          </ul>
+          <p>Self-hosting at home? Skip all of this and tunnel instead -- nothing gets published to the internet:</p>
+          <pre class="code" data-copy><code>ssh -L 8000:localhost:8000 user@your-host</code></pre>
+        </div>
+      </li>
+
+      <li class="step">
+        <div class="step-num">03</div>
+        <div class="step-body">
+          <h3>CORS and the redirect URI</h3>
+          <p>These two are the ones that bite. The browser refuses a cross-origin API call unless the
+          origin is listed, and Discord refuses the login unless the redirect matches what is registered
+          <em>character for character</em>.</p>
+          <pre class="code" data-copy><code>DISCORD_REDIRECT_URI=http://YOUR_IP_OR_DOMAIN:8000/auth/callback
+CORS_ORIGINS=http://YOUR_IP_OR_DOMAIN:8000
+MODSUITE_GUILD_ID=your_server_id</code></pre>
+          <p>Then add that exact redirect URI in the Developer Portal under
+          <strong>OAuth2 &rsaquo; Redirects</strong>. A trailing slash, a missing port, or
+          <code>http</code> where you registered <code>https</code> all count as different URIs.</p>
+          <p><code>CORS_ORIGINS</code> is an <em>origin</em> -- scheme, host, and port, with no path
+          and no trailing slash. <code>http://1.2.3.4:8000</code> is right;
+          <code>http://1.2.3.4:8000/</code> and <code>1.2.3.4</code> are not. Multiple origins are
+          comma-separated.</p>
+        </div>
+      </li>
+
+      <li class="step">
+        <div class="step-num">04</div>
+        <div class="step-body">
+          <h3>Lock down who can log in</h3>
+          <pre class="code" data-copy><code>DASHBOARD_ALLOWED_ROLES=&lt;Editor role ID&gt;,&lt;Moderator role ID&gt;</code></pre>
+          <p>Leave it blank and <strong>any member of the guild</strong> can reach the dashboard.
+          Set it before you go live, not after.</p>
+        </div>
+      </li>
+
+      <li class="step">
+        <div class="step-num">05</div>
+        <div class="step-body">
+          <h3>Put HTTPS in front of it</h3>
+          <p>Bare <code>http://IP:8000</code> sends the session cookie in the clear. If the dashboard is
+          reachable from the internet, terminate TLS in a reverse proxy. With a domain pointed at the
+          host, Caddy handles the certificate itself:</p>
+          <pre class="code" data-copy><code># /etc/caddy/Caddyfile
+modsuite.example.com {
+    reverse_proxy localhost:8000
+}</code></pre>
+          <p>Then bind the app to loopback, close 8000 to the outside, and update all three URLs --
+          including the one in the Developer Portal:</p>
+          <pre class="code" data-copy><code>API_HOST=127.0.0.1
+DISCORD_REDIRECT_URI=https://modsuite.example.com/auth/callback
+CORS_ORIGINS=https://modsuite.example.com</code></pre>
+        </div>
+      </li>
+    </ol>
+
+    <div class="section-header" style="margin-top:3rem">
+      <h3>When it does not work</h3>
+    </div>
+    <div class="feature-grid">
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Page never loads, request just hangs</h3></header>
+        <ul>
+          <li>A firewall is dropping the packet -- almost always the host one, since the provider rule is the one people remember</li>
+          <li>Confirm the process is listening: <code>ss -tlnp | grep 8000</code></li>
+          <li>Check <code>API_HOST</code> is <code>0.0.0.0</code> and not <code>127.0.0.1</code></li>
+        </ul>
+      </article>
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Blocked by CORS policy</h3></header>
+        <ul>
+          <li>The origin in the browser bar is not in <code>CORS_ORIGINS</code></li>
+          <li>Check for a trailing slash, a missing port, or <code>https</code> vs <code>http</code></li>
+          <li>Reaching it by IP when you listed the domain counts as a different origin</li>
+          <li>Restart the process -- <code>.env</code> is read at startup</li>
+        </ul>
+      </article>
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Invalid OAuth2 redirect_uri</h3></header>
+        <ul>
+          <li><code>DISCORD_REDIRECT_URI</code> and the portal entry differ somewhere</li>
+          <li>Compare them character by character, including the port and <code>/auth/callback</code></li>
+          <li>Behind a proxy the browser sees <code>https</code> on 443 -- register that, not <code>:8000</code></li>
+        </ul>
+      </article>
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Login works, then 403</h3></header>
+        <ul>
+          <li>Your account does not hold a role in <code>DASHBOARD_ALLOWED_ROLES</code></li>
+          <li><code>MODSUITE_GUILD_ID</code> points at a different server than the one you are in</li>
+          <li>Role IDs, not role names -- enable Developer Mode and copy the ID</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
 <!-- ============ COMMANDS ============ -->
 <section id="commands" class="commands">
   <div class="section-inner">
     <div class="section-header">
-      <div class="section-eyebrow">04 -- Command reference</div>
+      <div class="section-eyebrow">05 -- Command reference</div>
       <h2>Every slash command in ModSuite.</h2>
       <p class="section-lede">
-        Search or filter by category. <span id="cmd-count">151 commands</span> across 27 categories.
+        Search or filter by category. <span id="cmd-count">157 commands</span> across 28 categories.
       </p>
     </div>
 
@@ -442,6 +600,7 @@ pip install -r requirements.txt</code></pre>
         <button class="chip" data-cat="honeypot">Honeypot</button>
         <button class="chip" data-cat="notes">Notes</button>
         <button class="chip" data-cat="reactrole">React Roles</button>
+        <button class="chip" data-cat="boosters">Boosters</button>
         <button class="chip" data-cat="starboard">Starboard</button>
         <button class="chip" data-cat="streamer">Streamer</button>
         <button class="chip" data-cat="reminders">Reminders</button>
@@ -460,9 +619,35 @@ pip install -r requirements.txt</code></pre>
 <section id="changelog" class="changelog">
   <div class="section-inner">
     <div class="section-header">
-      <div class="section-eyebrow">05 -- Release history</div>
+      <div class="section-eyebrow">06 -- Release history</div>
       <h2>Changelog.</h2>
     </div>
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v4.1.0</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Legacy booster rewards</h4>
+        <ul>
+          <li>Discord removes its own booster role the instant someone stops boosting, and every perk hung off it goes with it. ModSuite grants a <strong>separate, permanent role</strong> on a member's first boost instead.</li>
+          <li><strong>The database row is the source of truth, not the Discord role.</strong> Roles are lost when a member leaves the server, so a record-free implementation would quietly break the promise for anyone who left and came back. <code>on_member_join</code> re-applies it.</li>
+          <li><code>/booster setup</code> refuses two roles: Discord's own booster role, which is the exact thing being worked around, and any role above the bot's own, which it could never assign.</li>
+          <li><code>/booster sync</code> backfills current boosters and restores the role to anyone whose record exists but whose role was removed by hand.</li>
+          <li><code>/booster revoke</code> records an actor and a reason and writes to the mod log rather than deleting the row. <code>/booster off</code> stops future grants without touching what was already earned.</li>
+        </ul>
+        <h4>Dashboard &amp; API</h4>
+        <ul>
+          <li>New <strong>Legacy Booster Rewards</strong> configuration section.</li>
+          <li><code>GET /boosters</code>, <code>POST /boosters/sync</code>, <code>DELETE /boosters/{user_id}</code>.</li>
+        </ul>
+        <h4>Verified</h4>
+        <ul>
+          <li>First boost grants and records; stopping boosting changes nothing; re-boosting does not create a duplicate; leaving and rejoining restores the role; a revoked member is not restored on rejoin; a disabled guild does nothing.</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="release">
       <div class="release-header">
         <span class="release-version">v4.0.0</span>
@@ -726,7 +911,7 @@ pip install -r requirements.txt</code></pre>
     </div>
   </div>
   <div class="footer-bottom">
-    <span>&copy; Hammond Digital Studios -- ModSuite v4.0</span>
+    <span>&copy; Hammond Digital Studios -- ModSuite v4.1</span>
   </div>
 </footer>
 
