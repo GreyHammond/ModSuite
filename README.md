@@ -1,6 +1,6 @@
 # ModSuite
 
-**Version 4.0** — a self-hosted Discord community platform: bot, REST API, and
+**Version 4.1** — a self-hosted Discord community platform: bot, REST API, and
 web dashboard in one process.
 
 ModSuite handles onboarding, self-roles, ModMail, moderation, warns, jail,
@@ -9,13 +9,45 @@ AutoMod, raid response, and content filtering. Everything is configurable from
 Discord or from the browser, and everything either surface does is written to a
 single audit trail.
 
+Runs on anything that can keep a Python process alive — a VPS, a spare desktop,
+a Raspberry Pi. SQLite is the only datastore; there is nothing else to
+provision.
+
 MIT licensed. Bring your own token and your own server.
 
 **[Documentation](https://greyhammond.github.io/ModSuite/)** · [Landing page](https://greyhammond.github.io/ModSuite/index.html)
 
 ---
 
-## What is new in 4.0
+## What is new in 4.1
+
+**Legacy booster rewards.** Discord strips its own booster role the moment
+someone stops boosting, and every perk hung off it goes with it. ModSuite grants
+a *separate, permanent* role on a member's first boost: boost once, keep the
+perks forever.
+
+The database row is the source of truth, not the Discord role — roles are lost
+when a member leaves the server, so the grant is re-applied on rejoin rather
+than quietly disappearing.
+
+- `/booster setup` names the permanent role. It refuses Discord's own booster
+  role (that is the problem being solved) and any role above the bot's own,
+  which it could never assign.
+- `/booster sync` backfills everyone already boosting, and restores the role to
+  anyone whose record exists but whose role was removed by hand.
+- `/booster list` shows who earned it, who is still boosting, and who is keeping
+  perks without boosting.
+- `/booster grant` and `/booster revoke` for manual cases. Revocation records an
+  actor and a reason and writes to the mod log instead of deleting the row.
+- `/booster off` stops future grants without touching anything already earned.
+
+Configurable from the dashboard under **Configuration → Legacy Booster
+Rewards**. API: `GET /boosters`, `POST /boosters/sync`,
+`DELETE /boosters/{user_id}`.
+
+---
+
+## What was new in 4.0
 
 **Server blueprints.** A JSON file describes a server's roles, categories,
 channels, and permission overwrites. `/blueprint apply` builds it. Fully
@@ -48,10 +80,10 @@ a reason to a channel members can read. Warnings stay private.
 **Multi-platform stream alerts.** Twitch, YouTube, Kick, and Rumble behind one
 provider interface. Only Twitch needs credentials.
 
-**RSS feeds.** Watch any RSS or Atom feed and post new items with an optional
-discussion thread per item. Falls back to the system `curl` binary when a host
-fingerprints the TLS handshake, which is what Cloudflare-fronted sites do to
-Python clients.
+**RSS feeds.** Watch any RSS or Atom feed — Substack, WordPress, YouTube channel
+feeds, municipal agenda feeds — and post new items with an optional discussion
+thread per item. Falls back to the system `curl` binary when a host fingerprints
+the TLS handshake, which is what Cloudflare-fronted sites do to Python clients.
 
 **Recurring events.** Reminders for meetings that follow a rule (2nd and 4th
 Tuesday) or an approved list of dates, with per-occurrence cancel, move, and
@@ -59,14 +91,17 @@ restore. Real public bodies rarely follow a clean rule, so both modes exist.
 
 **Records request tracker.** Business-day deadline maths for FOIA-style
 requests, with configurable response window, extension length, and holiday
-calendar.
+calendar. Defaults match Michigan FOIA; two numbers change it for another
+jurisdiction. Nothing else depends on it, so servers that do not file records
+requests can leave it off.
 
 **Membership roster.** Publishes a list of everyone holding a chosen role,
 grouped by organization, and republishes automatically when the role changes.
+The message is edited in place, so the link stays permanent and citable.
 
-**Dashboard parity.** Every editable config column now has an editor —
-verified programmatically against the schema, not by eye. The version is read
-from the API rather than hardcoded.
+**Dashboard parity.** Every editable config column now has an editor — verified
+programmatically against the schema, not by eye. The version is read from the
+API rather than hardcoded.
 
 ---
 
@@ -80,9 +115,12 @@ cp .env.example .env      # add DISCORD_TOKEN
 python bot.py
 ```
 
+On Windows, `venv\Scripts\activate` and `python bot.py`.
+
 Then in Discord: `/setup`.
 
-See `DEPLOY.md` for remote hosting, OAuth2, firewall rules, and systemd.
+`DEPLOY.md` covers keeping it running, opening the dashboard to the network,
+HTTPS, and backups — for a VPS, a home machine, or a Pi.
 
 ---
 
@@ -94,7 +132,7 @@ See `DEPLOY.md` for remote hosting, OAuth2, firewall rules, and systemd.
 4. Drag the bot's role above every role it needs to manage
 
 Optional: `/public-modlog`, `/archive setup`, `/feed add`, `/meeting add`,
-`/roster publish`.
+`/roster publish`, `/booster setup`.
 
 ---
 
