@@ -1,5 +1,5 @@
 /* ============================================================
-   ModSuite v2.0 — Pages Styles
+   ModSuite — Pages Styles
    ============================================================ */
 
 /* ── Page sections ──────────────────────────────────────── */
@@ -501,3 +501,5 @@ tbody td {
   transform: translateX(14px);
   background: var(--gold);
 }
+
+.cfg-ta-long { min-height: 110px; font-family: var(--font); line-height: 1.55; }

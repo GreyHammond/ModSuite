@@ -10,7 +10,8 @@
 
 import { get } from '../api.js';
 
-const VERSION = 'v2.0.0';
+// Fetched from /health on render; never hardcode a version here again.
+let VERSION = '';
 
 // Built-in self-role category names the bot creates during /setup
 const BUILTIN_NAMES = ['Colors', 'DM Prefs', 'Pronouns'];
@@ -274,6 +275,10 @@ async function renderContent(wrapper) {
 
 export async function render(el) {
   injectStyles();
+  try {
+    const h = await get('/health');
+    VERSION = h?.version ? `v${h.version}` : '';
+  } catch { VERSION = ''; }
   el.innerHTML = `
     <div class="page-header">
       <h2>Server Setup <span class="setup-version">${VERSION}</span></h2>

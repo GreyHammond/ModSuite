@@ -14,6 +14,7 @@ from discord.ext import commands
 from datetime import datetime, timezone
 
 import database as db
+from config import FOOTER_BRAND
 
 VERIFIED_ROLE_NAME = "Verified 18+"
 
@@ -69,7 +70,7 @@ async def _post_modlog(
     embed.add_field(name="User",       value=f"{target.mention} (`{target.id}`)", inline=True)
     embed.add_field(name="Action by",  value=f"{actor.mention}",                  inline=True)
     embed.add_field(name="Role",       value=VERIFIED_ROLE_NAME,                  inline=False)
-    embed.set_footer(text="ModSuite · Hammond Digital Studios")
+    embed.set_footer(text=FOOTER_BRAND)
     await channel.send(embed=embed)
 
 
@@ -95,11 +96,22 @@ class Verify(commands.Cog):
         name="verify",
         description=f"Grant the {VERIFIED_ROLE_NAME} role to a member.",
     )
-    @app_commands.describe(user="The member to verify")
-    async def verify(self, interaction: discord.Interaction, user: discord.Member):
+    @app_commands.describe(user="Member mention, username, or numeric user ID")
+    async def verify(self, interaction: discord.Interaction, user: str):
         if not self._is_staff(interaction):
             return await interaction.response.send_message(
                 "⛔ Moderator or Administrator only.", ephemeral=True
+            )
+
+        from utils import resolve_user
+        try:
+            user, is_member = await resolve_user(self.bot, interaction.guild, user)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        if not is_member:
+            return await interaction.response.send_message(
+                f"❌ **{user}** is not in this server, so no role can be granted.",
+                ephemeral=True,
             )
 
         role = await _get_verified_role(interaction.guild)
@@ -124,7 +136,7 @@ class Verify(commands.Cog):
             description=f"{user.mention} has been granted **{VERIFIED_ROLE_NAME}**.",
             color=0x3AB87A,
         )
-        embed.set_footer(text="ModSuite · Hammond Digital Studios")
+        embed.set_footer(text=FOOTER_BRAND)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /unverify ─────────────────────────────────────────────────────────────
@@ -133,11 +145,22 @@ class Verify(commands.Cog):
         name="unverify",
         description=f"Remove the {VERIFIED_ROLE_NAME} role from a member.",
     )
-    @app_commands.describe(user="The member to unverify")
-    async def unverify(self, interaction: discord.Interaction, user: discord.Member):
+    @app_commands.describe(user="Member mention, username, or numeric user ID")
+    async def unverify(self, interaction: discord.Interaction, user: str):
         if not self._is_staff(interaction):
             return await interaction.response.send_message(
                 "⛔ Moderator or Administrator only.", ephemeral=True
+            )
+
+        from utils import resolve_user
+        try:
+            user, is_member = await resolve_user(self.bot, interaction.guild, user)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        if not is_member:
+            return await interaction.response.send_message(
+                f"❌ **{user}** is not in this server, so they hold no roles here.",
+                ephemeral=True,
             )
 
         role = await _get_verified_role(interaction.guild)
@@ -162,7 +185,7 @@ class Verify(commands.Cog):
             description=f"{user.mention}'s **{VERIFIED_ROLE_NAME}** role has been removed.",
             color=0xE83A5A,
         )
-        embed.set_footer(text="ModSuite · Hammond Digital Studios")
+        embed.set_footer(text=FOOTER_BRAND)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

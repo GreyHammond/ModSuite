@@ -1,121 +1,158 @@
-# ModSuite v2.5 -- Deploy Guide
+# ModSuite — Deployment
 
-## ⚠️ Read First
+Everything you have to edit lives in one file: `.env`.
 
-**Back up your database** before deploying anything:
 ```bash
-cp /path/to/modsuite_v2/communitybot.db /path/to/modsuite_v2/communitybot.db.pre-v25.bak
+cp .env.example .env
+nano .env
 ```
-
-The v2.5 package does **not** include a `.db` file or a `venv/` -- those are yours and must not be overwritten.
 
 ---
 
-## Deploy -- Fresh install
+## 1. The four values you actually have to set
 
-If ModSuite isn't installed yet, extract the zip and follow the README:
+| Key | Where to get it |
+|---|---|
+| `DISCORD_TOKEN` | discord.com/developers → your app → Bot → Reset Token |
+| `DISCORD_CLIENT_ID` | same app → OAuth2 → Client ID |
+| `DISCORD_CLIENT_SECRET` | same app → OAuth2 → Reset Secret |
+| `MODSUITE_GUILD_ID` | right-click your server → Copy Server ID |
+
+Everything else has a working default or is optional.
+
+### Bot setup in the developer portal
+
+Under **Bot**, enable all three Privileged Gateway Intents:
+
+- Presence Intent
+- Server Members Intent
+- Message Content Intent
+
+Without Message Content the archive and automod see empty messages. Without
+Server Members the roster cannot read who holds a role.
+
+Invite with the `bot` and `applications.commands` scopes and Administrator.
+**Then drag the bot's role near the top of the list.** The bot can only manage
+roles below its own, so anything above it is untouchable by mute, automod, and
+the blueprint.
+
+---
+
+## 2. Oracle Cloud
+
+### Networking, once
+
+OCI console: **Networking → Virtual Cloud Networks → your VCN → Security Lists
+→ Default Security List → Add Ingress Rule**
+
+- Source CIDR `0.0.0.0/0`
+- Destination port `8000`
+
+Then on the instance itself, because Oracle images ship with iptables closed no
+matter what the VCN says:
 
 ```bash
-unzip modsuite-v2.5.zip
-cd modsuite_v2
-python -m venv venv
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 8000 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+That second step is the one people miss. The VCN rule alone will not open it.
+
+### .env for a remote dashboard
+
+Replace `YOUR_IP` with the instance's public IP:
+
+```
+DISCORD_REDIRECT_URI=http://YOUR_IP:8000/auth/callback
+CORS_ORIGINS=http://YOUR_IP:8000
+API_HOST=0.0.0.0
+API_PORT=8000
+```
+
+The redirect URI must **also** be added in the developer portal under OAuth2 →
+Redirects, character for character. A trailing-slash mismatch is the most
+common reason login fails.
+
+### Restrict who can log in
+
+```
+DASHBOARD_ALLOWED_ROLES=<Editor role ID>,<Moderator role ID>
+```
+
+Leave it blank and any member of the guild can reach the dashboard. Set it
+before you go live, not after.
+
+### Running it
+
+```bash
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# edit .env -- paste DISCORD_TOKEN
 python bot.py
 ```
 
-## Deploy -- Upgrading from any earlier version
+Keep it alive across reboots with `/etc/systemd/system/modsuite.service`:
 
-The safest process, keeping your DB intact:
+```ini
+[Unit]
+Description=ModSuite
+After=network.target
 
-1. **Stop the running bot.** If you're using screen:
-   ```bash
-   screen -X -S MothMail quit
-   # or whatever your session name is
-   ```
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ModSuite
+ExecStart=/home/ubuntu/ModSuite/venv/bin/python bot.py
+Restart=always
+RestartSec=10
 
-2. **Back up.**
-   ```bash
-   cd /home/hammond/MothMail/modsuite_v2
-   cp communitybot.db communitybot.db.pre-v25.bak
-   ```
-
-3. **Extract the v2.5 zip somewhere else**, then copy files into your install directory. From the extracted `modsuite_v2/` folder:
-
-   ```bash
-   # Copy everything EXCEPT venv, communitybot.db, and .env
-   rsync -av \
-     --exclude='venv/' \
-     --exclude='communitybot.db*' \
-     --exclude='.env' \
-     ./ /home/hammond/MothMail/modsuite_v2/
-   ```
-
-   Or manually -- copy `api.py`, `bot.py`, `database.py`, `config.py`, `utils.py`, `requirements.txt`, `README.md`, `CHANGELOG.md`, plus the whole `cogs/` and `web/` folders. Leave `.env`, `venv/`, and `communitybot.db*` alone.
-
-4. **Install any new dependencies:**
-   ```bash
-   cd /home/hammond/MothMail/modsuite_v2
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-   This adds `psutil` if you don't already have it (used by `/health`).
-
-5. **Start the bot back up:**
-   ```bash
-   screen -dmS MothMail bash -c 'cd /home/hammond/MothMail/modsuite_v2 && source venv/bin/activate && python3 bot.py'
-   ```
-
-6. **Verify:**
-   - `screen -ls` should show MothMail attached.
-   - `sudo ss -tlnp | grep 8000` should show Python listening.
-   - Hard-refresh the dashboard: `Ctrl+Shift+R` at `http://127.0.0.1:8000/`.
-
-The database schema migrates itself on first start after any code update -- no manual SQL. Any new config columns added in v2.2 (AutoMod, raid upgrades) and v2.5 (schema unchanged, but you get the point) appear automatically.
-
----
-
-## What changed in v2.5 vs your current install
-
-Two files if you're on v2.2 and only want the additions: **`api.py`** and **`bot.py`** carry all backend changes. Every `web/pages/*.js` file except `setup.js` and `selfroles.js` was rewritten. **`web/api.js`** is important -- this fixes the CORS issue where the dashboard couldn't talk to itself.
-
-If you want the minimum change footprint instead of a full deploy, cherry-pick:
-- `api.py`
-- `bot.py`
-- `web/api.js`
-- `web/shell/sidebar.js`
-- `web/pages/dashboard.js`
-- `web/pages/configuration.js`
-- `web/pages/warns.js`
-- `web/pages/notes.js`
-- `web/pages/modlogs.js`
-- `web/pages/tickets.js`
-- `requirements.txt` → `pip install psutil`
-
----
-
-## Rollback
-
-If anything goes wrong:
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
-# Restore the DB
-cp communitybot.db.pre-v25.bak communitybot.db
-
-# If you kept your old files (recommended), copy them back over
-# The bot is designed to run fine on the schema -- older code + newer DB works.
+sudo systemctl enable --now modsuite
+sudo journalctl -u modsuite -f
 ```
 
 ---
 
-## After deploy -- try these
+## 3. First run, in order
 
-- Dashboard tab → look for the trend line, top offenders, and bot health card
-- Configuration tab → 7 section tabs, edit anything, hit Save
-- Warns tab → `+ Add warn` button, type a username
-- Tickets tab → click any ticket to see the transcript
-- Mod Logs tab → try Export CSV
+Several of these depend on the one before, so do them in sequence.
 
-If anything looks broken, the bot's startup log (`screen -r MothMail`) is your friend.
+1. `/blueprint preview name:starter` — read the plan, nothing changes
+2. `/blueprint apply name:starter confirm:True`
+3. Verify role order: the bot's role above Muted, and Muted above members
+4. `/mute-setup` — locks Muted out of every category except the Jail
+5. `/setup` — mod-log, ModMail, roles. **Set both the ModMail owner and mod
+   roles**, or tickets are invisible to you as well as everyone else
+6. `/public-modlog channel:#mod-log`
+7. `/archive setup restore_channel:#deleted-messages retention_days:30 scope:public`
+8. `/feed add name:Blog url:https://example.com/feed channel:#announcements`
+9. `/meeting add` for any recurring event
+10. `/roster set` for each member, then `/roster publish`
+
+### Verify before inviting anyone
+
+- Log in from a second account with no roles. Private categories should be
+  **invisible**, not merely locked.
+- Mute a test account and confirm it cannot post anywhere, including in
+  channels where it holds another role that grants access.
+- Delete a message in `#general` and confirm it reappears in
+  `#deleted-messages`.
+
+---
+
+## 4. Backups
+
+Two things hold everything:
+
+- `communitybot.db` — config, logs, tickets, archive, audit trail, FOIA
+- `vault/` — archived attachments
+
+```bash
+sqlite3 communitybot.db ".backup /home/ubuntu/backups/modsuite-$(date +%F).db"
+```
+
+Neither is in git, by design. Back them up somewhere else.

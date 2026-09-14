@@ -14,7 +14,7 @@ import database as db
 
 DRAFT_COLOR    = 0xF0B429  # Yellow -- DRAFT
 PUBLISH_COLOR  = 0xD4A843  # Gold  -- live
-FOOTER_BRAND   = "ModSuite · Hammond Digital Studios"
+from config import FOOTER_BRAND  # noqa: F401
 FOOTER_DRAFT   = "🔧 DRAFT -- not yet published  |  /publishreactmessage to go live  |  /cancelreactmessage to discard"
 
 # Preset role colours for the creation prompt

@@ -26,7 +26,7 @@ from discord.ext import commands
 import database as db
 import config
 
-FOOTER_BRAND = "ModSuite · Hammond Digital Studios"
+from config import FOOTER_BRAND  # noqa: F401
 
 # ── New role definitions ─────────────────────────────────────────────────────
 # (cfg_key, display_name)  -- no special perms or forced color per spec

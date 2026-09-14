@@ -292,6 +292,9 @@ function renderField(f) {
     const min = f.min != null ? `min="${f.min}"` : '';
     const max = f.max != null ? `max="${f.max}"` : '';
     input = `<input class="cfg-input ${dCls}" type="number" data-key="${f.key}" data-type="number" ${min} ${max} value="${cur ?? ''}">`;
+  } else if (f.type === 'textarea') {
+    // Long-form server text: welcome message, ModMail opener, self-roles blurb.
+    input = `<textarea class="cfg-ta cfg-ta-long ${dCls}" data-key="${f.key}" data-type="textarea" rows="5">${esc(cur ?? '')}</textarea>`;
   } else if (f.type === 'json_list') {
     let val = cur;
     if (typeof val !== 'string') val = JSON.stringify(val || []);
@@ -379,8 +382,8 @@ function attachFieldHandlers(container) {
       } else if (type === 'number') {
         const raw = el.value;
         v = raw === '' ? null : Number(raw);
-      } else if (type === 'json_list') {
-        v = el.value;  // send as string; backend accepts JSON string
+      } else if (type === 'json_list' || type === 'textarea') {
+        v = el.value;  // json_list is sent as a JSON string; textarea as-is
       } else {
         v = el.value;
       }

@@ -11,8 +11,9 @@ from discord.ext import commands
 from datetime import datetime
 
 import database as db
+from config import FOOTER_BRAND
 
-BRAND_FOOTER = "ModSuite · Hammond Digital Studios"
+BRAND_FOOTER = FOOTER_BRAND
 
 
 def _emoji_key(emoji: discord.PartialEmoji | discord.Emoji | str) -> str:

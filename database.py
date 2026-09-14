@@ -15,6 +15,32 @@ def get_conn():
 # ── Column definitions -- add new columns here, migrations happen automatically ─
 # Format: (column_name, sqlite_type, default_value_or_None)
 GUILD_CONFIG_COLUMNS = [
+    # ── Legacy booster rewards (v4.1) ─────────────────────────────────────────
+    ("legacy_boost_enabled",  "INTEGER", "0"),
+    ("legacy_boost_role",     "INTEGER", None),
+    ("legacy_boost_announce", "INTEGER", None),
+    ("legacy_boost_thanks",   "TEXT",    "''"),
+
+    # ── Roster + request tracker (v4.0) ───────────────────────────────────────
+    ("roster_role_name",      "TEXT", "'Roster'"),
+    ("roster_channel_name",   "TEXT", "'roster'"),
+    ("roster_intro",          "TEXT", "''"),
+    ("tracker_initial_days",  "INTEGER", "5"),
+    ("tracker_extension_days","INTEGER", "10"),
+    ("tracker_holiday_set",   "TEXT", "'us_federal'"),
+
+    # ── Mute role + public moderation log (v4.1) ──────────────────────────────
+    ("muted_role",            "INTEGER", None),
+    ("public_modlog_channel", "INTEGER", None),
+    ("public_modlog_enabled", "INTEGER", "0"),
+
+    # ── Archive (Sentinel, v4.0) ──────────────────────────────────────────────
+    ("archive_enabled",            "INTEGER", "0"),
+    ("archive_restore_channel",    "INTEGER", None),
+    ("archive_retention_days",     "INTEGER", "30"),
+    ("archive_scope",              "TEXT",    "'public'"),   # public | all
+    ("archive_excluded_channels",  "TEXT",    "'[]'"),
+    ("archive_excluded_categories","TEXT",    "'[]'"),
     ("owner_role_id",       "INTEGER", None),
     ("mod_role_id",         "INTEGER", None),
     ("modmail_cat_id",      "INTEGER", None),
@@ -33,6 +59,10 @@ GUILD_CONFIG_COLUMNS = [
     ("selfroles_msg",       "TEXT",    "''"),
     ("modmail_open_msg",    "TEXT",    "''"),
     ("warn_mute_threshold", "INTEGER", "3"),
+    # Referenced by /setup and the dashboard config schema since v2.0 but never
+    # declared, so writes to it silently went nowhere. Auto-migration adds it
+    # to existing databases on next startup with the documented 24h default.
+    ("warn_mute_duration_hrs", "INTEGER", "24"),
     ("warn_ban_threshold",  "INTEGER", "5"),
     ("raid_join_count",     "INTEGER", "10"),
     ("raid_join_seconds",   "INTEGER", "10"),
@@ -352,6 +382,7 @@ def init_db():
                 guild_id        TEXT NOT NULL,
                 user_id         TEXT NOT NULL,
                 twitch_username TEXT NOT NULL,
+                platform        TEXT NOT NULL DEFAULT 'twitch',
                 channel_id      TEXT NOT NULL,
                 is_live         INTEGER NOT NULL DEFAULT 0,
                 stream_title    TEXT NOT NULL DEFAULT '',
@@ -422,7 +453,178 @@ def init_db():
                 created_at  TEXT    NOT NULL,
                 UNIQUE(guild_id, trigger)
             );
+
+            CREATE TABLE IF NOT EXISTS rss_feeds (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id     TEXT    NOT NULL,
+                name         TEXT    NOT NULL,
+                url          TEXT    NOT NULL,
+                channel_id   TEXT    NOT NULL,
+                make_threads INTEGER NOT NULL DEFAULT 1,
+                ping_role_id TEXT    NOT NULL DEFAULT '',
+                enabled      INTEGER NOT NULL DEFAULT 1,
+                last_checked TEXT,
+                last_error   TEXT    NOT NULL DEFAULT '',
+                created_at   TEXT    NOT NULL,
+                UNIQUE(guild_id, url)
+            );
+
+            CREATE TABLE IF NOT EXISTS rss_posted (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_id   INTEGER NOT NULL,
+                guid      TEXT    NOT NULL,
+                title     TEXT    NOT NULL DEFAULT '',
+                posted_at TEXT    NOT NULL,
+                UNIQUE(feed_id, guid)
+            );
+
+            CREATE TABLE IF NOT EXISTS meetings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id     TEXT    NOT NULL,
+                name         TEXT    NOT NULL,
+                channel_id   TEXT    NOT NULL,
+                schedule     TEXT    NOT NULL DEFAULT '{}',
+                meeting_time TEXT    NOT NULL DEFAULT '19:00',
+                location     TEXT    NOT NULL DEFAULT '',
+                agenda_url   TEXT    NOT NULL DEFAULT '',
+                ping_role_id TEXT    NOT NULL DEFAULT '',
+                enabled      INTEGER NOT NULL DEFAULT 1,
+                last_fired   TEXT    NOT NULL DEFAULT '',
+                exceptions   TEXT    NOT NULL DEFAULT '{}',
+                created_at   TEXT    NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS legacy_boosters (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id      TEXT    NOT NULL,
+                user_id       TEXT    NOT NULL,
+                username      TEXT    NOT NULL DEFAULT '',
+                first_boosted TEXT,
+                granted_at    TEXT    NOT NULL,
+                granted_by    TEXT    NOT NULL DEFAULT 'auto',
+                revoked       INTEGER NOT NULL DEFAULT 0,
+                revoked_at    TEXT,
+                revoked_by    TEXT    NOT NULL DEFAULT '',
+                note          TEXT    NOT NULL DEFAULT '',
+                UNIQUE(guild_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_legacy_boost_guild
+                ON legacy_boosters(guild_id, revoked);
+
+            CREATE TABLE IF NOT EXISTS roster_members (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id     TEXT    NOT NULL,
+                user_id      TEXT    NOT NULL,
+                display_name TEXT    NOT NULL DEFAULT '',
+                organization TEXT    NOT NULL DEFAULT '',
+                role_title   TEXT    NOT NULL DEFAULT '',
+                notes        TEXT    NOT NULL DEFAULT '',
+                added_at     TEXT    NOT NULL,
+                UNIQUE(guild_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id    TEXT    NOT NULL DEFAULT '',
+                actor_id    TEXT    NOT NULL DEFAULT '',
+                actor_name  TEXT    NOT NULL DEFAULT '',
+                method      TEXT    NOT NULL,
+                path        TEXT    NOT NULL,
+                summary     TEXT    NOT NULL DEFAULT '',
+                payload     TEXT    NOT NULL DEFAULT '',
+                status      INTEGER NOT NULL DEFAULT 0,
+                ip          TEXT    NOT NULL DEFAULT '',
+                source      TEXT    NOT NULL DEFAULT 'dashboard',
+                target      TEXT    NOT NULL DEFAULT '',
+                mutating    INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_guild_time
+                ON audit_log(guild_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_audit_actor
+                ON audit_log(actor_id);
+
+            CREATE TABLE IF NOT EXISTS foia_requests (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id        TEXT    NOT NULL,
+                body            TEXT    NOT NULL,
+                subject         TEXT    NOT NULL,
+                filed_date      TEXT    NOT NULL,
+                response_due    TEXT    NOT NULL,
+                extended_due    TEXT,
+                status          TEXT    NOT NULL DEFAULT 'filed',
+                fee_quoted      REAL,
+                notes           TEXT    NOT NULL DEFAULT '',
+                filed_by        TEXT    NOT NULL DEFAULT '',
+                warned_stages   TEXT    NOT NULL DEFAULT '[]',
+                created_at      TEXT    NOT NULL,
+                updated_at      TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_foia_guild_status
+                ON foia_requests(guild_id, status);
+
+            CREATE TABLE IF NOT EXISTS message_archive (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id      TEXT    NOT NULL,
+                channel_id    TEXT    NOT NULL,
+                channel_name  TEXT    NOT NULL DEFAULT '',
+                message_id    TEXT    NOT NULL,
+                author_id     TEXT    NOT NULL,
+                author_name   TEXT    NOT NULL DEFAULT '',
+                content       TEXT    NOT NULL DEFAULT '',
+                attachments   TEXT    NOT NULL DEFAULT '[]',
+                edited        INTEGER NOT NULL DEFAULT 0,
+                edit_history  TEXT    NOT NULL DEFAULT '[]',
+                deleted       INTEGER NOT NULL DEFAULT 0,
+                deleted_at    TEXT,
+                created_at    TEXT    NOT NULL,
+                UNIQUE(message_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_archive_guild_time
+                ON message_archive(guild_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_archive_author
+                ON message_archive(guild_id, author_id);
+            CREATE INDEX IF NOT EXISTS idx_archive_deleted
+                ON message_archive(guild_id, deleted);
+
+            CREATE TABLE IF NOT EXISTS blueprints (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id    TEXT,
+                name        TEXT    NOT NULL,
+                description TEXT    NOT NULL DEFAULT '',
+                data        TEXT    NOT NULL,
+                source      TEXT    NOT NULL DEFAULT 'custom',
+                created_at  TEXT    NOT NULL,
+                updated_at  TEXT    NOT NULL,
+                UNIQUE(guild_id, name)
+            );
+
+            CREATE TABLE IF NOT EXISTS blueprint_runs (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id      TEXT    NOT NULL,
+                blueprint     TEXT    NOT NULL,
+                actor_id      TEXT    NOT NULL,
+                actor_name    TEXT    NOT NULL DEFAULT '',
+                dry_run       INTEGER NOT NULL DEFAULT 1,
+                created_count INTEGER NOT NULL DEFAULT 0,
+                skipped_count INTEGER NOT NULL DEFAULT 0,
+                failed_count  INTEGER NOT NULL DEFAULT 0,
+                log           TEXT    NOT NULL DEFAULT '[]',
+                created_at    TEXT    NOT NULL
+            );
         """)
+
+        # Migrate modmail_messages -- add attachments column if missing.
+        # Media sent through ModMail used to be dropped entirely; this column
+        # stores a JSON list of {filename, size, content_type, url, relayed_url}
+        # so attachments survive into the transcript.
+        existing_mm_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(modmail_messages)")
+        }
+        if "attachments" not in existing_mm_cols:
+            conn.execute(
+                "ALTER TABLE modmail_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'"
+            )
 
         # Migrate selfrole_roles -- add toggle column if missing
         existing_sr_cols = {
@@ -430,6 +632,35 @@ def init_db():
         }
         if "toggle" not in existing_sr_cols:
             conn.execute("ALTER TABLE selfrole_roles ADD COLUMN toggle INTEGER NOT NULL DEFAULT 0")
+
+        # Migrate meetings -- exceptions column added in 4.3.7
+        existing_mtg_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(meetings)")
+        }
+        if "exceptions" not in existing_mtg_cols:
+            conn.execute(
+                "ALTER TABLE meetings ADD COLUMN exceptions TEXT NOT NULL DEFAULT '{}'"
+            )
+
+        # Migrate audit_log -- columns added in 4.3.1 for Discord-side logging
+        existing_audit_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(audit_log)")
+        }
+        for col, decl in (("source", "TEXT NOT NULL DEFAULT 'dashboard'"),
+                          ("target", "TEXT NOT NULL DEFAULT ''"),
+                          ("mutating", "INTEGER NOT NULL DEFAULT 1")):
+            if col not in existing_audit_cols:
+                conn.execute(f"ALTER TABLE audit_log ADD COLUMN {col} {decl}")
+
+        # Migrate streamers -- add platform column. Existing rows are Twitch,
+        # which is all the table could hold before multi-platform support.
+        existing_st_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(streamers)")
+        }
+        if "platform" not in existing_st_cols:
+            conn.execute(
+                "ALTER TABLE streamers ADD COLUMN platform TEXT NOT NULL DEFAULT 'twitch'"
+            )
 
         # Migrate jail table -- add new columns without touching existing data
         existing_jail_cols = {
@@ -518,11 +749,22 @@ def close_ticket(ticket_id: int):
 
 
 def log_message(ticket_id: int, author_id: int, author_name: str,
-                content: str, direction: str, anonymous: bool = False):
+                content: str, direction: str, anonymous: bool = False,
+                attachments: "list[dict] | None" = None):
+    """
+    Record a ModMail message.
+
+    `attachments` is a list of dicts describing any files on the message:
+    {filename, size, content_type, url, relayed_url}. `url` is the original
+    (which expires), `relayed_url` points at the copy the bot re-uploaded into
+    the ticket channel.
+    """
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO modmail_messages (ticket_id, author_id, author_name, content, direction, timestamp, anonymous) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (ticket_id, author_id, author_name, content, direction, datetime.utcnow().isoformat(), int(anonymous)),
+            "INSERT INTO modmail_messages (ticket_id, author_id, author_name, content, direction, timestamp, anonymous, attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (ticket_id, author_id, author_name, content, direction,
+             datetime.utcnow().isoformat(), int(anonymous),
+             json.dumps(attachments or [])),
         )
 
 
@@ -531,7 +773,15 @@ def get_ticket_messages(ticket_id: int) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM modmail_messages WHERE ticket_id = ? ORDER BY id", (ticket_id,)
         ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["attachments"] = json.loads(d.get("attachments") or "[]")
+        except (TypeError, ValueError):
+            d["attachments"] = []
+        out.append(d)
+    return out
 
 
 # ── Mutes ─────────────────────────────────────────────────────────────────────
@@ -1429,13 +1679,13 @@ def update_starboard_entry_content(entry_id: int, board_message_id: str) -> None
 # ── Streamers ────────────────────────────────────────────────────────────────
 
 def add_streamer(guild_id: str, user_id: str, twitch_username: str,
-                 channel_id: str) -> int:
+                 channel_id: str, platform: str = "twitch") -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO streamers (guild_id, user_id, twitch_username, channel_id, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
+            """INSERT INTO streamers (guild_id, user_id, twitch_username, channel_id, created_at, platform)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (guild_id, user_id, twitch_username, channel_id,
-             datetime.utcnow().isoformat()),
+             datetime.utcnow().isoformat(), platform),
         )
         return cur.lastrowid
 
@@ -1857,4 +2107,702 @@ def update_autoresponse(ar_id: int, **kwargs) -> bool:
 def delete_autoresponse(ar_id: int) -> bool:
     with get_conn() as conn:
         cur = conn.execute("DELETE FROM autoresponses WHERE id = ?", (ar_id,))
+        return cur.rowcount > 0
+
+
+# ── Starboard / reminder helpers added for dashboard parity (v3.5) ───────────
+
+def update_starboard(board_id: int, **fields) -> bool:
+    """
+    Update any subset of a starboard's mutable columns.
+
+    update_starboard_threshold() only ever covered `threshold`, which meant the
+    channel and nsfw_only flag could be set at creation and never changed.
+    """
+    allowed = {"name", "channel_id", "threshold", "nsfw_only"}
+    updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+    if not updates:
+        return False
+    sets = ", ".join(f"{k} = ?" for k in updates)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE starboards SET {sets} WHERE board_id = ?",
+            (*updates.values(), board_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_starboard_by_id(board_id: int) -> "dict | None":
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM starboards WHERE board_id = ?", (board_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def count_starboard_entries(board_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM starboard_entries WHERE board_id = ?",
+            (board_id,),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def get_guild_reminders(guild_id: str, include_fired: bool = False,
+                        limit: int = 200) -> list[dict]:
+    """
+    Every reminder in a guild, not just one user's.
+
+    get_user_reminders() is keyed on user_id only, so staff had no way to see
+    what was scheduled server-wide.
+    """
+    sql = "SELECT * FROM reminders WHERE guild_id = ?"
+    if not include_fired:
+        sql += " AND fired = 0"
+    sql += " ORDER BY fire_at LIMIT ?"
+    with get_conn() as conn:
+        rows = conn.execute(sql, (str(guild_id), int(limit))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_reminder_by_id(reminder_id: int, guild_id: str) -> bool:
+    """
+    Delete a reminder without needing to know whose it is.
+
+    delete_reminder() requires a matching user_id, which is correct for the
+    self-service /remindme flow but makes staff cleanup impossible.
+    """
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM reminders WHERE reminder_id = ? AND guild_id = ?",
+            (reminder_id, str(guild_id)),
+        )
+        return cur.rowcount > 0
+
+
+# ── Blueprints (v3.6) ─────────────────────────────────────────────────────────
+# A blueprint is a declarative JSON description of a server's roles, categories,
+# and channels. Blueprints are stored per-guild; a row with guild_id NULL is a
+# global/bundled blueprint available to every guild.
+
+def upsert_blueprint(guild_id: str | None, name: str, data: dict,
+                     description: str = "", source: str = "custom") -> int:
+    """Insert or replace a blueprint. Returns its row id."""
+    now = datetime.utcnow().isoformat()
+    payload = json.dumps(data)
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM blueprints WHERE guild_id IS ? AND name = ?",
+            (guild_id, name),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE blueprints SET data = ?, description = ?, source = ?, "
+                "updated_at = ? WHERE id = ?",
+                (payload, description, source, now, existing["id"]),
+            )
+            return existing["id"]
+        cur = conn.execute(
+            "INSERT INTO blueprints (guild_id, name, description, data, source, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, name, description, payload, source, now, now),
+        )
+        return cur.lastrowid
+
+
+def get_blueprint(guild_id: str | None, name: str) -> dict | None:
+    """
+    Look up a blueprint by name. Guild-owned blueprints win over global ones,
+    so a server can override a bundled blueprint without editing files on disk.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM blueprints WHERE guild_id = ? AND name = ?",
+            (guild_id, name),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT * FROM blueprints WHERE guild_id IS NULL AND name = ?",
+                (name,),
+            ).fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    out["data"] = json.loads(out["data"])
+    return out
+
+
+def get_blueprints(guild_id: str | None = None) -> list[dict]:
+    """All blueprints visible to a guild: its own plus every global one."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM blueprints WHERE guild_id IS NULL OR guild_id = ? "
+            "ORDER BY (guild_id IS NULL) DESC, name",
+            (guild_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["data"] = json.loads(d["data"])
+        except json.JSONDecodeError:
+            d["data"] = {}
+        out.append(d)
+    return out
+
+
+def delete_blueprint(guild_id: str | None, name: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM blueprints WHERE guild_id IS ? AND name = ?",
+            (guild_id, name),
+        )
+        return cur.rowcount > 0
+
+
+def add_blueprint_run(guild_id: str, blueprint: str, actor_id: str,
+                      actor_name: str, dry_run: bool, created: int,
+                      skipped: int, failed: int, log_lines: list[str]) -> int:
+    """Record an apply (or preview) so there is an audit trail of who ran what."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO blueprint_runs (guild_id, blueprint, actor_id, actor_name, "
+            "dry_run, created_count, skipped_count, failed_count, log, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, blueprint, actor_id, actor_name, int(dry_run), created,
+             skipped, failed, json.dumps(log_lines), datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_blueprint_runs(guild_id: str, limit: int = 25) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM blueprint_runs WHERE guild_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (guild_id, limit),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["log"] = json.loads(d["log"])
+        except json.JSONDecodeError:
+            d["log"] = []
+        out.append(d)
+    return out
+
+
+# ── Message archive (v4.0) ────────────────────────────────────────────────────
+# Replaces Sentinel's logs.json. That file was read and rewritten in full on
+# every single message, which does not survive a public server and corrupts the
+# whole archive if the process dies mid-write.
+
+def archive_message(guild_id: str, channel_id: str, channel_name: str,
+                    message_id: str, author_id: str, author_name: str,
+                    content: str, attachments: list, created_at: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO message_archive "
+            "(guild_id, channel_id, channel_name, message_id, author_id, "
+            " author_name, content, attachments, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, channel_id, channel_name, message_id, author_id,
+             author_name, content, json.dumps(attachments), created_at),
+        )
+        return cur.lastrowid
+
+
+def archive_record_edit(message_id: str, new_content: str) -> bool:
+    """Keep the original and append each revision, so edits are visible too."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT content, edit_history FROM message_archive WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        try:
+            history = json.loads(row["edit_history"])
+        except json.JSONDecodeError:
+            history = []
+        history.append({"content": row["content"],
+                        "replaced_at": datetime.utcnow().isoformat()})
+        conn.execute(
+            "UPDATE message_archive SET content = ?, edited = 1, edit_history = ? "
+            "WHERE message_id = ?",
+            (new_content, json.dumps(history), message_id),
+        )
+        return True
+
+
+def archive_mark_deleted(message_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM message_archive WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE message_archive SET deleted = 1, deleted_at = ? WHERE message_id = ?",
+            (datetime.utcnow().isoformat(), message_id),
+        )
+    out = dict(row)
+    try:
+        out["attachments"] = json.loads(out["attachments"])
+    except json.JSONDecodeError:
+        out["attachments"] = []
+    return out
+
+
+def archive_search(guild_id: str, query: str = "", author_id: str = "",
+                   channel_id: str = "", deleted_only: bool = False,
+                   limit: int = 100, offset: int = 0) -> list[dict]:
+    sql = "SELECT * FROM message_archive WHERE guild_id = ?"
+    params: list = [guild_id]
+    if query:
+        sql += " AND content LIKE ?"
+        params.append(f"%{query}%")
+    if author_id:
+        sql += " AND author_id = ?"
+        params.append(author_id)
+    if channel_id:
+        sql += " AND channel_id = ?"
+        params.append(channel_id)
+    if deleted_only:
+        sql += " AND deleted = 1"
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    with get_conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for k in ("attachments", "edit_history"):
+            try:
+                d[k] = json.loads(d[k])
+            except (json.JSONDecodeError, TypeError):
+                d[k] = []
+        out.append(d)
+    return out
+
+
+def archive_expired(guild_id: str, cutoff_iso: str) -> list[dict]:
+    """Rows past the retention window, returned so their vault files can go too."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, attachments FROM message_archive "
+            "WHERE guild_id = ? AND created_at < ?",
+            (guild_id, cutoff_iso),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["attachments"] = json.loads(d["attachments"])
+        except json.JSONDecodeError:
+            d["attachments"] = []
+        out.append(d)
+    return out
+
+
+def archive_delete_ids(ids: list[int]) -> int:
+    if not ids:
+        return 0
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"DELETE FROM message_archive WHERE id IN ({','.join('?' * len(ids))})",
+            ids,
+        )
+        return cur.rowcount
+
+
+def archive_stats(guild_id: str) -> dict:
+    with get_conn() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) c FROM message_archive WHERE guild_id = ?", (guild_id,)
+        ).fetchone()["c"]
+        deleted = conn.execute(
+            "SELECT COUNT(*) c FROM message_archive WHERE guild_id = ? AND deleted = 1",
+            (guild_id,),
+        ).fetchone()["c"]
+        oldest = conn.execute(
+            "SELECT MIN(created_at) m FROM message_archive WHERE guild_id = ?",
+            (guild_id,),
+        ).fetchone()["m"]
+    return {"total": total, "deleted": deleted, "oldest": oldest}
+
+
+# ── FOIA tracker (v4.1) ───────────────────────────────────────────────────────
+# Michigan FOIA (MCL 15.235): a public body has 5 business days to respond, and
+# may take one 10-business-day extension. Missing the deadline is itself
+# actionable, so the deadline math has to be right.
+
+FOIA_STATUSES = ("filed", "acknowledged", "extended", "fee_quoted",
+                 "granted", "partial", "denied", "appealed", "closed")
+
+
+def add_foia(guild_id: str, body: str, subject: str, filed_date: str,
+             response_due: str, filed_by: str = "", notes: str = "") -> int:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO foia_requests (guild_id, body, subject, filed_date, "
+            "response_due, filed_by, notes, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, body, subject, filed_date, response_due, filed_by,
+             notes, now, now),
+        )
+        return cur.lastrowid
+
+
+def get_foia(guild_id: str, foia_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM foia_requests WHERE guild_id = ? AND id = ?",
+            (guild_id, foia_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_foias(guild_id: str, open_only: bool = False) -> list[dict]:
+    sql = "SELECT * FROM foia_requests WHERE guild_id = ?"
+    params: list = [guild_id]
+    if open_only:
+        sql += " AND status NOT IN ('closed', 'granted', 'denied')"
+    sql += " ORDER BY response_due ASC"
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def update_foia(guild_id: str, foia_id: int, **fields) -> bool:
+    allowed = {"body", "subject", "status", "response_due", "extended_due",
+               "fee_quoted", "notes", "warned_stages"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return False
+    sets["updated_at"] = datetime.utcnow().isoformat()
+    clause = ", ".join(f"{k} = ?" for k in sets)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE foia_requests SET {clause} WHERE guild_id = ? AND id = ?",
+            [*sets.values(), guild_id, foia_id],
+        )
+        return cur.rowcount > 0
+
+
+def delete_foia(guild_id: str, foia_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM foia_requests WHERE guild_id = ? AND id = ?",
+            (guild_id, foia_id),
+        )
+        return cur.rowcount > 0
+
+
+# ── Dashboard audit trail (v4.3) ──────────────────────────────────────────────
+# Every state-changing request through the dashboard is recorded here. The
+# mod-log answers "what happened to this member"; this answers "what did this
+# staff account do", which is the question an audit actually asks.
+
+def add_audit(guild_id: str, actor_id: str, actor_name: str, method: str,
+              path: str, summary: str = "", payload: str = "",
+              status: int = 0, ip: str = "", source: str = "dashboard",
+              target: str = "", mutating: bool = True) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO audit_log (guild_id, actor_id, actor_name, method, path, "
+            "summary, payload, status, ip, source, target, mutating, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, actor_id, actor_name, method, path, summary,
+             payload[:4000], status, ip, source, target, int(mutating),
+             datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_audit(guild_id: str = "", actor_id: str = "", path_like: str = "",
+              source: str = "", mutating_only: bool = False,
+              limit: int = 100, offset: int = 0) -> list[dict]:
+    sql = "SELECT * FROM audit_log WHERE 1=1"
+    params: list = []
+    if guild_id:
+        sql += " AND (guild_id = ? OR guild_id = '')"
+        params.append(guild_id)
+    if actor_id:
+        sql += " AND actor_id = ?"
+        params.append(actor_id)
+    if path_like:
+        sql += " AND (path LIKE ? OR summary LIKE ? OR target LIKE ?)"
+        params.extend([f"%{path_like}%"] * 3)
+    if source:
+        sql += " AND source = ?"
+        params.append(source)
+    if mutating_only:
+        sql += " AND mutating = 1"
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    params.extend([min(limit, 500), offset])
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def audit_actors(guild_id: str = "") -> list[dict]:
+    """Distinct actors with a count, for the audit page filter."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT actor_id, actor_name, COUNT(*) n, MAX(created_at) last, "
+            "SUM(CASE WHEN source = 'discord' THEN 1 ELSE 0 END) discord_n, "
+            "SUM(CASE WHEN source = 'dashboard' THEN 1 ELSE 0 END) dashboard_n "
+            "FROM audit_log WHERE actor_id != '' "
+            "GROUP BY actor_id ORDER BY n DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def purge_audit(older_than_iso: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM audit_log WHERE created_at < ?",
+                           (older_than_iso,))
+        return cur.rowcount
+
+
+# ── RSS feeds (v4.3.2) ────────────────────────────────────────────────────────
+
+def add_feed(guild_id: str, name: str, url: str, channel_id: str,
+             make_threads: bool = True, ping_role_id: str = "") -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT OR REPLACE INTO rss_feeds (guild_id, name, url, channel_id, "
+            "make_threads, ping_role_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, name, url, channel_id, int(make_threads), ping_role_id,
+             datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_feeds(guild_id: str = "", enabled_only: bool = False) -> list[dict]:
+    sql = "SELECT * FROM rss_feeds WHERE 1=1"
+    params: list = []
+    if guild_id:
+        sql += " AND guild_id = ?"
+        params.append(guild_id)
+    if enabled_only:
+        sql += " AND enabled = 1"
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY name", params)]
+
+
+def update_feed(feed_id: int, **fields) -> bool:
+    allowed = {"name", "url", "channel_id", "make_threads", "ping_role_id",
+               "enabled", "last_checked", "last_error"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return False
+    clause = ", ".join(f"{k} = ?" for k in sets)
+    with get_conn() as conn:
+        cur = conn.execute(f"UPDATE rss_feeds SET {clause} WHERE id = ?",
+                           [*sets.values(), feed_id])
+        return cur.rowcount > 0
+
+
+def delete_feed(guild_id: str, feed_id: int) -> bool:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM rss_posted WHERE feed_id = ?", (feed_id,))
+        cur = conn.execute("DELETE FROM rss_feeds WHERE guild_id = ? AND id = ?",
+                           (guild_id, feed_id))
+        return cur.rowcount > 0
+
+
+def feed_item_seen(feed_id: int, guid: str) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT 1 FROM rss_posted WHERE feed_id = ? AND guid = ?",
+            (feed_id, guid),
+        ).fetchone() is not None
+
+
+def mark_feed_item(feed_id: int, guid: str, title: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO rss_posted (feed_id, guid, title, posted_at) "
+            "VALUES (?, ?, ?, ?)",
+            (feed_id, guid, title, datetime.utcnow().isoformat()),
+        )
+
+
+def recent_feed_items(feed_id: int, limit: int = 10) -> list[dict]:
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM rss_posted WHERE feed_id = ? ORDER BY id DESC LIMIT ?",
+            (feed_id, limit))]
+
+
+# ── Meetings (v4.3.2) ─────────────────────────────────────────────────────────
+
+def add_meeting(guild_id: str, name: str, channel_id: str, schedule: dict,
+                meeting_time: str = "19:00", location: str = "",
+                agenda_url: str = "", ping_role_id: str = "") -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO meetings (guild_id, name, channel_id, schedule, "
+            "meeting_time, location, agenda_url, ping_role_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, name, channel_id, json.dumps(schedule), meeting_time,
+             location, agenda_url, ping_role_id, datetime.utcnow().isoformat()),
+        )
+        return cur.lastrowid
+
+
+def get_meetings(guild_id: str = "", enabled_only: bool = False) -> list[dict]:
+    sql = "SELECT * FROM meetings WHERE 1=1"
+    params: list = []
+    if guild_id:
+        sql += " AND guild_id = ?"
+        params.append(guild_id)
+    if enabled_only:
+        sql += " AND enabled = 1"
+    with get_conn() as conn:
+        rows = [dict(r) for r in conn.execute(sql + " ORDER BY name", params)]
+    for r in rows:
+        try:
+            r["schedule"] = json.loads(r["schedule"])
+        except (json.JSONDecodeError, TypeError):
+            r["schedule"] = {}
+        try:
+            r["exceptions"] = json.loads(r.get("exceptions") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            r["exceptions"] = {}
+    return rows
+
+
+def update_meeting(guild_id: str, meeting_id: int, **fields) -> bool:
+    allowed = {"name", "channel_id", "schedule", "meeting_time", "location",
+               "agenda_url", "ping_role_id", "enabled", "last_fired",
+               "exceptions"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    for key in ("schedule", "exceptions"):
+        if key in sets and isinstance(sets[key], dict):
+            sets[key] = json.dumps(sets[key])
+    if not sets:
+        return False
+    clause = ", ".join(f"{k} = ?" for k in sets)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE meetings SET {clause} WHERE guild_id = ? AND id = ?",
+            [*sets.values(), guild_id, meeting_id])
+        return cur.rowcount > 0
+
+
+def delete_meeting(guild_id: str, meeting_id: int) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM meetings WHERE guild_id = ? AND id = ?",
+                           (guild_id, meeting_id))
+        return cur.rowcount > 0
+
+
+# ── Round Table roster (v4.3.2) ───────────────────────────────────────────────
+
+def upsert_roster_member(guild_id: str, user_id: str, display_name: str = "",
+                         organization: str = "", role_title: str = "",
+                         notes: str = "") -> int:
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM roster_members WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id)).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE roster_members SET display_name = ?, organization = ?, "
+                "role_title = ?, notes = ? WHERE id = ?",
+                (display_name, organization, role_title, notes, existing["id"]))
+            return existing["id"]
+        cur = conn.execute(
+            "INSERT INTO roster_members (guild_id, user_id, display_name, "
+            "organization, role_title, notes, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, user_id, display_name, organization, role_title, notes,
+             datetime.utcnow().isoformat()))
+        return cur.lastrowid
+
+
+def get_roster(guild_id: str) -> list[dict]:
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM roster_members WHERE guild_id = ? "
+            "ORDER BY organization COLLATE NOCASE, display_name COLLATE NOCASE",
+            (guild_id,))]
+
+
+def get_roster_member(guild_id: str, user_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM roster_members WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id)).fetchone()
+    return dict(row) if row else None
+
+
+def remove_roster_member(guild_id: str, user_id: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM roster_members WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id))
+        return cur.rowcount > 0
+
+
+# ── Legacy boosters (v4.1) ────────────────────────────────────────────────────
+# A record of everyone who has ever boosted and been granted the permanent
+# reward role. The row is the source of truth, not the Discord role, because
+# roles are lost when a member leaves and we want the grant to survive that.
+
+def grant_legacy_boost(guild_id: str, user_id: str, username: str = "",
+                       first_boosted: str = "", granted_by: str = "auto",
+                       note: str = "") -> bool:
+    """Record a grant. Returns False if this member already had one."""
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id, revoked FROM legacy_boosters "
+            "WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        ).fetchone()
+        if existing:
+            if existing["revoked"]:
+                conn.execute(
+                    "UPDATE legacy_boosters SET revoked = 0, revoked_at = NULL, "
+                    "revoked_by = '' WHERE id = ?", (existing["id"],))
+                return True
+            return False
+        conn.execute(
+            "INSERT INTO legacy_boosters (guild_id, user_id, username, "
+            "first_boosted, granted_at, granted_by, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, user_id, username, first_boosted or None,
+             datetime.utcnow().isoformat(), granted_by, note),
+        )
+        return True
+
+
+def get_legacy_boosters(guild_id: str, include_revoked: bool = False) -> list[dict]:
+    sql = "SELECT * FROM legacy_boosters WHERE guild_id = ?"
+    if not include_revoked:
+        sql += " AND revoked = 0"
+    sql += " ORDER BY granted_at DESC"
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(sql, (guild_id,))]
+
+
+def is_legacy_booster(guild_id: str, user_id: str) -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT 1 FROM legacy_boosters WHERE guild_id = ? AND user_id = ? "
+            "AND revoked = 0", (guild_id, user_id)
+        ).fetchone() is not None
+
+
+def revoke_legacy_boost(guild_id: str, user_id: str, revoked_by: str = "",
+                        note: str = "") -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE legacy_boosters SET revoked = 1, revoked_at = ?, "
+            "revoked_by = ?, note = ? WHERE guild_id = ? AND user_id = ? "
+            "AND revoked = 0",
+            (datetime.utcnow().isoformat(), revoked_by, note, guild_id, user_id),
+        )
         return cur.rowcount > 0

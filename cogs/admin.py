@@ -12,6 +12,7 @@ from datetime import timedelta
 import re
 
 import database as db
+from config import FOOTER_BRAND
 
 
 # ── Duration parser (shared with /setautojail) ────────────────────────────────
@@ -88,7 +89,7 @@ class Admin(commands.Cog):
             description=f"**{type.capitalize()}** {text}",
             color=0xD4A843,
         )
-        embed.set_footer(text="ModSuite · Hammond Digital Studios")
+        embed.set_footer(text=FOOTER_BRAND)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /say ──────────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ class Admin(commands.Cog):
             ),
             color=0xD4A843,
         )
-        embed.set_footer(text="ModSuite · Hammond Digital Studios")
+        embed.set_footer(text=FOOTER_BRAND)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

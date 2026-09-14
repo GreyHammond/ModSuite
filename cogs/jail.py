@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import zipfile, io
 import database as db
 import config
-from utils import can_moderate, hierarchy_refusal_embed, get_bot_message, _fmt
+from utils import can_moderate, hierarchy_refusal_embed, get_bot_message, _fmt, resolve_user
 from .moderation import parse_duration, _fmt_td
 
 
@@ -188,10 +188,21 @@ async def do_jail(
 
 async def do_unjail(
     guild: discord.Guild,
-    member: discord.Member,
+    member,
     mod: "discord.Member | None",
     bot: commands.Bot,
+    *,
+    is_member: bool = True,
 ) -> tuple[bool, str]:
+    """
+    Release a jailed user.
+
+    ``member`` may be a discord.Member, a discord.User, or utils.UnknownUser.
+    When ``is_member`` is False the target has left the guild: role restoration
+    and the DM are skipped, but the jail channel is still archived and deleted
+    and the database row is still cleared. Leaving the row behind was the old
+    behaviour and it stranded the jail channel forever.
+    """
     cfg  = db.get_config(guild.id)
     jail = db.get_jail(guild.id, member.id)
     if jail is None:
@@ -200,14 +211,18 @@ async def do_unjail(
     mod_display = mod.mention if mod else "ModSuite (Temp Jail Expired)"
     mod_str     = str(mod) if mod else "ModSuite (Auto)"
 
-    # Restore roles
-    roles_to_restore = []
-    for rid in jail["saved_roles"]:
-        role = guild.get_role(rid)
-        if role and role.is_assignable():
-            roles_to_restore.append(role)
-    if roles_to_restore:
-        await member.add_roles(*roles_to_restore, reason=f"Unjailed by {mod_str}")
+    # Restore roles -- only possible while they are still in the guild.
+    if is_member:
+        roles_to_restore = []
+        for rid in jail["saved_roles"]:
+            role = guild.get_role(rid)
+            if role and role.is_assignable():
+                roles_to_restore.append(role)
+        if roles_to_restore:
+            try:
+                await member.add_roles(*roles_to_restore, reason=f"Unjailed by {mod_str}")
+            except discord.Forbidden:
+                pass
 
     # Archive transcript
     jail_ch = guild.get_channel(jail["channel_id"])
@@ -249,16 +264,17 @@ async def do_unjail(
         reason="Jail duration expired" if mod is None else "Released by staff",
     )
 
-    # Notify user
-    try:
-        text = _fmt(
-            get_bot_message(db, str(guild.id), "unjail_dm"),
-            user=member.mention,
-        )
-        dm_embed = discord.Embed(description=text, color=discord.Color.green())
-        await member.send(embed=dm_embed)
-    except discord.Forbidden:
-        pass
+    # Notify user -- pointless for someone who has already left.
+    if is_member:
+        try:
+            text = _fmt(
+                get_bot_message(db, str(guild.id), "unjail_dm"),
+                user=member.mention,
+            )
+            dm_embed = discord.Embed(description=text, color=discord.Color.green())
+            await member.send(embed=dm_embed)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
     # Log
     log_embed = discord.Embed(title="🔓 Member Unjailed", color=discord.Color.green(), timestamp=datetime.utcnow())
@@ -278,12 +294,22 @@ class Jail(commands.Cog):
         self.auto_unjail_loop.cancel()
 
     @app_commands.command(name="jail", description="Jail a member -- strips roles and creates a private channel.")
-    @app_commands.describe(member="Member to jail", reason="Reason", notify="DM the user that they've been jailed?")
-    async def jail(self, interaction: discord.Interaction, member: discord.Member,
+    @app_commands.describe(member="Member mention, username, or numeric user ID", reason="Reason", notify="DM the user that they've been jailed?")
+    async def jail(self, interaction: discord.Interaction, member: str,
                    reason: str = "No reason provided.", notify: bool = True):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        if not is_member:
+            return await interaction.response.send_message(
+                f"❌ **{member}** is not in this server, so there are no roles to strip. "
+                f"Use `/ban` for someone who has already left.",
+                ephemeral=True,
+            )
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         if member.bot:
@@ -306,12 +332,19 @@ class Jail(commands.Cog):
         )
 
     @app_commands.command(name="unjail", description="Release a jailed member and restore their roles.")
-    @app_commands.describe(member="Member to unjail")
-    async def unjail(self, interaction: discord.Interaction, member: discord.Member):
+    @app_commands.describe(member="Member mention, username, or numeric user ID")
+    async def unjail(self, interaction: discord.Interaction, member: str):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
-        if not can_moderate(interaction.user, member, cfg or {}):
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+
+        # Hierarchy only applies to people who are actually here. A departed
+        # user has no roles, and their stale jail row still needs clearing.
+        if is_member and not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
 
         ok_check = db.get_jail(interaction.guild_id, member.id)
@@ -319,21 +352,33 @@ class Jail(commands.Cog):
             return await interaction.response.send_message("❌ That user is not currently jailed.", ephemeral=True)
 
         # Respond first -- the channel gets deleted during unjail which breaks edit_original_response
-        await interaction.response.send_message(f"🔓 Releasing {member.mention}...", ephemeral=True)
-        await do_unjail(interaction.guild, member, interaction.user, self.bot)
+        suffix = "" if is_member else " (they have left the server -- clearing the record and channel)"
+        await interaction.response.send_message(
+            f"🔓 Releasing **{member}**...{suffix}", ephemeral=True
+        )
+        await do_unjail(interaction.guild, member, interaction.user, self.bot, is_member=is_member)
 
     @app_commands.command(name="tempjail", description="Temporarily jail a member for a fixed duration.")
     @app_commands.describe(
-        member="Member to jail",
+        member="Member mention, username, or numeric user ID",
         duration="Duration: 10m, 2h, 1d, 2h30m",
         reason="Reason",
         notify="DM the user?",
     )
-    async def tempjail(self, interaction: discord.Interaction, member: discord.Member,
+    async def tempjail(self, interaction: discord.Interaction, member: str,
                        duration: str, reason: str = "No reason provided.", notify: bool = True):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        if not is_member:
+            return await interaction.response.send_message(
+                f"❌ **{member}** is not in this server, so there are no roles to strip.",
+                ephemeral=True,
+            )
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         if member.bot:
@@ -377,12 +422,19 @@ class Jail(commands.Cog):
                 db.remove_jail(row["guild_id"], row["user_id"])
                 continue
             member = guild.get_member(row["user_id"])
+            # A member who left mid-sentence used to have their row silently
+            # dropped, which stranded the jail channel. Run the full release
+            # path instead so the transcript is archived and the channel goes.
+            is_member = member is not None
             if member is None:
-                db.remove_jail(row["guild_id"], row["user_id"])
-                continue
+                from utils import UnknownUser
+                try:
+                    member = await self.bot.fetch_user(row["user_id"])
+                except Exception:
+                    member = UnknownUser(row["user_id"])
             try:
                 # actor=None signals automated action -- can_moderate allows everything except server owner
-                await do_unjail(guild, member, None, self.bot)
+                await do_unjail(guild, member, None, self.bot, is_member=is_member)
             except Exception as e:
                 import logging
                 logging.getLogger("ModSuite.jail").warning(f"Auto-unjail failed for {row['user_id']}: {e}")

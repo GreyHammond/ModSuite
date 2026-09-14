@@ -19,9 +19,10 @@ except ImportError:
     _AIOHTTP = False
 
 import database as db
+from config import FOOTER_BRAND
 from utils import parse_relative_time, can_moderate
 
-BRAND_FOOTER = "ModSuite · Hammond Digital Studios"
+BRAND_FOOTER = FOOTER_BRAND
 
 
 def _is_staff(member: discord.Member, cfg: dict | None) -> bool:
@@ -65,7 +66,7 @@ class Move(commands.Cog):
     )
     @app_commands.describe(
         time="How far back to look: 10m, 1h, 30m (max 24h)",
-        user1="First user whose messages to move",
+        user1="First user: mention, username, or numeric user ID",
         channel="Destination channel",
         user2="Second user (optional)",
         user3="Third user (optional)",
@@ -75,11 +76,11 @@ class Move(commands.Cog):
         self,
         interaction: discord.Interaction,
         time: str,
-        user1: discord.Member,
+        user1: str,
         channel: discord.TextChannel,
-        user2: discord.Member | None = None,
-        user3: discord.Member | None = None,
-        user4: discord.Member | None = None,
+        user2: str | None = None,
+        user3: str | None = None,
+        user4: str | None = None,
     ):
         cfg = db.get_config(interaction.guild_id)
 
@@ -89,6 +90,24 @@ class Move(commands.Cog):
                 "❌ You need to be a moderator to use this command.", ephemeral=True
             )
             return
+
+        # Messages outlive their author's membership, so a departed user's
+        # messages are still movable by ID.
+        from utils import resolve_user
+        resolved = []
+        for raw in (user1, user2, user3, user4):
+            if raw is None:
+                continue
+            try:
+                who, _is_member = await resolve_user(self.bot, interaction.guild, raw)
+            except ValueError as e:
+                await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+                return
+            resolved.append(who)
+        user1 = resolved[0]
+        user2 = resolved[1] if len(resolved) > 1 else None
+        user3 = resolved[2] if len(resolved) > 2 else None
+        user4 = resolved[3] if len(resolved) > 3 else None
 
         # Parse time span
         td = parse_relative_time(time)

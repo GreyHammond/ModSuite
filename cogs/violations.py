@@ -166,11 +166,17 @@ class Violations(commands.Cog):
     )
 
     @violations_group.command(name="check", description="Check a user's active violation count.")
-    @app_commands.describe(member="Member to check")
-    async def check(self, interaction: discord.Interaction, member: discord.Member):
+    @app_commands.describe(member="Member mention, username, or numeric user ID")
+    async def check(self, interaction: discord.Interaction, member: str):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("Staff only.", ephemeral=True)
+
+        from utils import resolve_user
+        try:
+            member, _is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
         window = (cfg or {}).get("violation_window_minutes") or 60
         threshold = (cfg or {}).get("violation_jail_threshold") or 5
@@ -205,11 +211,19 @@ class Violations(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @violations_group.command(name="clear", description="Clear all violations for a user.")
-    @app_commands.describe(member="Member to clear violations for")
-    async def clear(self, interaction: discord.Interaction, member: discord.Member):
+    @app_commands.describe(member="Member mention, username, or numeric user ID")
+    async def clear(self, interaction: discord.Interaction, member: str):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("Staff only.", ephemeral=True)
+
+        # Violations are database rows keyed on the user ID, so this works
+        # whether or not the target is still in the guild.
+        from utils import resolve_user
+        try:
+            member, _is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
 
         with db.get_conn() as conn:
             cur = conn.execute(
@@ -229,7 +243,7 @@ class Violations(commands.Cog):
         )
 
         await interaction.response.send_message(
-            f"Cleared **{count}** violation(s) for {member.mention}.", ephemeral=True
+            f"Cleared **{count}** violation(s) for **{member}** (`{member.id}`).", ephemeral=True
         )
 
     @violations_group.command(name="threshold", description="Set violation-to-jail threshold.")

@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import database as db
+from config import FOOTER_BRAND
 from utils import DEFAULTS
 
 # ── Slot metadata ─────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ class MessageEditModal(discord.ui.Modal):
             color=0xD4A843,
         )
         embed.add_field(name="New value", value=self.message_input.value, inline=False)
-        embed.set_footer(text="ModSuite · Hammond Digital Studios")
+        embed.set_footer(text=FOOTER_BRAND)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -146,7 +147,7 @@ class Messages(commands.Cog):
             color=0xD4A843,
         )
         embed.add_field(name="Default value", value=f"```{default}```", inline=False)
-        embed.set_footer(text="ModSuite · Hammond Digital Studios")
+        embed.set_footer(text=FOOTER_BRAND)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

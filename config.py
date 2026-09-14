@@ -5,6 +5,15 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("DISCORD_TOKEN", "YOUR_TOKEN_HERE")
 
+# ── Branding ──────────────────────────────────────────────────────────────────
+# Branding. Override any of these in .env to white-label a deployment.
+PRODUCT_NAME  = os.getenv("PRODUCT_NAME", "ModSuite")
+ORG_NAME      = os.getenv("ORG_NAME", "Hammond Digital Studios")
+FOOTER_BRAND  = os.getenv("FOOTER_BRAND", f"{PRODUCT_NAME} · {ORG_NAME}")
+BRAND_COLOR   = int(os.getenv("BRAND_COLOR", "0xD4A843"), 0)   # ModSuite gold
+BRAND_ACCENT  = int(os.getenv("BRAND_ACCENT", "0xE0B54E"), 0)
+BRAND_INK     = int(os.getenv("BRAND_INK", "0x0E0E14"), 0)
+
 # ── Default messages ──────────────────────────────────────────────────────────
 DEFAULT_SELFROLES_MSG = (
     "🎨 **Pick a color for your nickname!**\n"
@@ -21,8 +30,9 @@ DEFAULT_MODMAIL_OPEN_MSG = (
     "Please describe your issue and we'll get back to you as soon as possible."
 )
 DEFAULT_JAIL_MSG = (
-    "🔒 You have been pulled into a private channel by a staff member.\n"
-    "Please wait -- someone will be with you shortly."
+    "🔒 A moderator has moved you into a private channel to talk something through.\n"
+    "This is a conversation, not a punishment. Nobody else can see this channel. "
+    "Someone will be with you shortly."
 )
 
 # ── Color roles ───────────────────────────────────────────────────────────────
@@ -52,6 +62,7 @@ MOD_ROLE_COLOR = 0xE74C3C
 
 # ── Channel / category names ──────────────────────────────────────────────────
 MODMAIL_CATEGORY_NAME  = "ModMail"
+JAIL_CATEGORY_NAME     = "Jail"
 MODMAIL_CHANNEL_NAME   = "modmail"
 MODLOG_CHANNEL_NAME    = "mod-log"
 CLOSED_CHANNEL_NAME    = "closed-tickets"

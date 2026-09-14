@@ -4,28 +4,154 @@ from discord.ext import commands
 from datetime import datetime
 import zipfile
 import io
+import json
+import logging
 import database as db
 import config
 
+log = logging.getLogger("ModSuite.ModMail")
 
-def _staff_embed(author_name: str, content: str, anonymous: bool) -> discord.Embed:
+# Extensions Discord renders inline. Anything else is relayed as a plain file.
+_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+# Fallback when the guild's real limit cannot be read. 10 MB is the floor for
+# an unboosted guild, so it is always safe.
+_DEFAULT_UPLOAD_LIMIT = 10 * 1024 * 1024
+
+
+def _is_image(filename: str) -> bool:
+    return filename.lower().endswith(_IMAGE_EXTS)
+
+
+def _upload_limit(guild: "discord.Guild | None") -> int:
+    """The guild's real attachment ceiling, which rises with boost tier."""
+    try:
+        return int(guild.filesize_limit)
+    except Exception:
+        return _DEFAULT_UPLOAD_LIMIT
+
+
+def _describe_size(n: int) -> str:
+    if n >= 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n} B"
+
+
+async def _download_attachments(attachments, limit: int):
+    """
+    Pull attachment bytes down so they can be re-uploaded.
+
+    Re-uploading rather than linking is deliberate. Discord's CDN URLs are
+    signed and expire within about 24 hours, so a ticket that only stored links
+    would have dead media by the time anyone reviewed the transcript. The copy
+    the bot uploads lives as long as the message does.
+
+    Returns (files, oversized, failed) where `files` are ready-to-send
+    discord.File objects and the other two are attachment objects that could
+    not be included.
+    """
+    files, oversized, failed = [], [], []
+    for att in attachments:
+        if att.size > limit:
+            oversized.append(att)
+            continue
+        try:
+            buf = io.BytesIO(await att.read())
+            buf.seek(0)
+            files.append(discord.File(
+                buf,
+                filename=att.filename,
+                spoiler=att.is_spoiler(),
+            ))
+        except (discord.HTTPException, discord.NotFound, discord.Forbidden) as e:
+            log.warning("Could not download attachment %s: %s", att.filename, e)
+            failed.append(att)
+    return files, oversized, failed
+
+
+def _attachment_records(attachments) -> list[dict]:
+    """Metadata persisted alongside the message so transcripts stay complete."""
+    return [{
+        "filename": a.filename,
+        "size": a.size,
+        "content_type": a.content_type,
+        "url": a.url,
+        "spoiler": a.is_spoiler(),
+    } for a in attachments]
+
+
+def _record_relayed_urls(records: list[dict], sent_message) -> None:
+    """
+    Point each stored record at the bot's re-uploaded copy.
+
+    The original URL on the user's DM expires, but the copy in the ticket
+    channel lives as long as that message does, which is what the transcript
+    packer fetches from on close.
+    """
+    if sent_message is None:
+        return
+    by_name = {a.filename: a.url for a in sent_message.attachments}
+    for rec in records:
+        if rec["filename"] in by_name:
+            rec["relayed_url"] = by_name[rec["filename"]]
+
+
+def _attachment_note(oversized, failed, limit: int) -> str:
+    """Explain, in the channel, anything that could not be relayed."""
+    parts = []
+    for a in oversized:
+        parts.append(
+            f"\u26a0\ufe0f **{a.filename}** ({_describe_size(a.size)}) exceeds this "
+            f"server's {_describe_size(limit)} upload limit, so it could not be "
+            f"copied across. Original link (expires within ~24h): {a.url}"
+        )
+    for a in failed:
+        parts.append(
+            f"\u26a0\ufe0f **{a.filename}** could not be downloaded from Discord. "
+            f"Original link (expires within ~24h): {a.url}"
+        )
+    return "\n".join(parts)
+
+
+def _staff_embed(author_name: str, content: str, anonymous: bool,
+                 inline_image: "str | None" = None) -> discord.Embed:
     display = "Staff" if anonymous else author_name
     embed = discord.Embed(
-        description=content,
+        description=content or None,
         color=discord.Color.blurple(),
         timestamp=datetime.utcnow(),
     )
     embed.set_author(name=f"💬 {display}")
+    if inline_image:
+        embed.set_image(url=inline_image)
     return embed
 
 
-def _user_embed(author_name: str, content: str) -> discord.Embed:
+def _user_embed(author_name: str, content: str,
+                attachments: "list | None" = None,
+                inline_image: "str | None" = None) -> discord.Embed:
+    """
+    `inline_image` is an ``attachment://filename`` reference pointing at a file
+    sent in the same message, which makes the image render inside the embed
+    rather than as a separate block underneath it.
+    """
     embed = discord.Embed(
-        description=content,
+        description=content or None,
         color=discord.Color.gold(),
         timestamp=datetime.utcnow(),
     )
     embed.set_author(name=f"📨 {author_name}")
+    if inline_image:
+        embed.set_image(url=inline_image)
+    if attachments:
+        names = ", ".join(f"`{a.filename}` ({_describe_size(a.size)})" for a in attachments)
+        embed.add_field(
+            name=f"📎 Attachment{'s' if len(attachments) > 1 else ''} ({len(attachments)})",
+            value=names[:1024],
+            inline=False,
+        )
     return embed
 
 
@@ -43,9 +169,73 @@ def _build_transcript(ticket: dict, messages: list[dict]) -> str:
         direction = "→ USER" if msg["direction"] == "to_user" else "← USER"
         anon_tag  = " [anon]" if msg["anonymous"] else ""
         lines.append(f"[{msg['timestamp']}] {direction} {msg['author_name']}{anon_tag}:")
-        lines.append(f"  {msg['content']}")
+        if msg.get("content"):
+            lines.append(f"  {msg['content']}")
+        for att in msg.get("attachments") or []:
+            lines.append(
+                f"  [attachment] {att.get('filename')} "
+                f"({_describe_size(att.get('size') or 0)})"
+                f"{' -- see media/ folder' if att.get('_archived') else ''}"
+            )
+        if not msg.get("content") and not (msg.get("attachments") or []):
+            lines.append("  (empty message)")
         lines.append("")
     return "\n".join(lines)
+
+
+async def _fetch_bytes(url: str) -> "bytes | None":
+    """Fetch a CDN URL. Returns None on any failure rather than raising."""
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    return None
+                return await resp.read()
+    except Exception as e:
+        log.warning("Could not fetch %s: %s", url, e)
+        return None
+
+
+async def _collect_media(messages: list[dict], budget: int) -> list[tuple]:
+    """
+    Download every attachment the ticket carried, for bundling into the
+    transcript zip.
+
+    This has to happen before the ticket channel is deleted: the re-uploaded
+    copies live on that channel's messages, so deleting it takes the media with
+    it. Without this step a closed ticket would keep a text log referencing
+    files nobody can ever open again.
+
+    Returns [(archive_path, bytes)], newest skipped once `budget` is exhausted.
+    """
+    collected, used, seen = [], 0, set()
+    for msg in messages:
+        for att in msg.get("attachments") or []:
+            url = att.get("relayed_url") or att.get("url")
+            name = att.get("filename") or "file"
+            if not url:
+                continue
+            size = att.get("size") or 0
+            if used + size > budget:
+                continue
+            data = await _fetch_bytes(url)
+            if data is None:
+                continue
+
+            # Two users can both send "image.png"; keep both.
+            path = f"media/{name}"
+            n = 1
+            while path in seen:
+                stem, _, ext = name.rpartition(".")
+                path = f"media/{stem or name}_{n}{('.' + ext) if stem else ''}"
+                n += 1
+            seen.add(path)
+
+            collected.append((path, data))
+            used += len(data)
+            att["_archived"] = True
+    return collected
 
 
 class ReplyModal(discord.ui.Modal, title="Reply to User"):
@@ -133,8 +323,15 @@ async def _close_ticket(bot: commands.Bot, guild: discord.Guild, ticket: dict,
     if cfg is None:
         return
 
-    # Build transcript
-    messages  = db.get_ticket_messages(ticket["id"])
+    messages = db.get_ticket_messages(ticket["id"])
+
+    # Grab the media *before* the channel is deleted below. The re-uploaded
+    # copies hang off that channel's messages, so once it goes, so do they.
+    # Leave headroom under the upload limit for the text log and zip overhead.
+    budget = int(_upload_limit(guild) * 0.85)
+    media = await _collect_media(messages, budget)
+
+    # _collect_media marks what it managed to archive, so build the text after.
     transcript = _build_transcript(ticket, messages)
 
     # Pack into zip
@@ -151,7 +348,11 @@ async def _close_ticket(bot: commands.Bot, guild: discord.Guild, ticket: dict,
     txt_name = f"{stamp}-{username}.txt"
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(txt_name, transcript)
+        for path, data in media:
+            zf.writestr(path, data)
     zip_buf.seek(0)
+
+    total_attachments = sum(len(m.get("attachments") or []) for m in messages)
 
     # Post to closed-tickets channel
     closed_ch_id = cfg.get("closed_ch_id")
@@ -165,11 +366,32 @@ async def _close_ticket(bot: commands.Bot, guild: discord.Guild, ticket: dict,
         embed.add_field(name="User",      value=f"<@{ticket['user_id']}> (`{username}`)", inline=True)
         embed.add_field(name="Closed by", value=closed_by.mention, inline=True)
         embed.add_field(name="Opened",    value=ticket["opened_at"][:19], inline=False)
+        if total_attachments:
+            embed.add_field(
+                name="Attachments",
+                value=(f"{len(media)} of {total_attachments} bundled into the zip"
+                       if len(media) != total_attachments
+                       else f"{total_attachments} bundled into the zip"),
+                inline=False,
+            )
         embed.set_footer(text=f"Ticket #{ticket['id']}")
-        await closed_ch.send(
-            embed=embed,
-            file=discord.File(zip_buf, filename=zip_name),
-        )
+        try:
+            await closed_ch.send(
+                embed=embed,
+                file=discord.File(zip_buf, filename=zip_name),
+            )
+        except discord.HTTPException as e:
+            # Bundled media can push the archive past the limit even with the
+            # budget. Falling back to the text log keeps the record rather than
+            # losing the whole transcript.
+            log.warning("Transcript zip rejected (%s); sending text log only.", e)
+            txt_buf = io.BytesIO(transcript.encode("utf-8"))
+            embed.add_field(
+                name="\u26a0\ufe0f Note",
+                value="Media was too large to attach; text log only.",
+                inline=False,
+            )
+            await closed_ch.send(embed=embed, file=discord.File(txt_buf, filename=txt_name))
 
     # Notify user
     try:
@@ -215,8 +437,26 @@ class ModMail(commands.Cog):
         if target_guild is None:
             return
 
-        user    = message.author
-        content = message.content or "[attachment / embed]"
+        user = message.author
+        content = message.content or ""
+
+        # Pull down any media so it can be re-uploaded into the ticket. This
+        # used to be thrown away and replaced with the literal string
+        # "[attachment / embed]", so staff saw that a file had been sent but
+        # never got the file itself.
+        limit = _upload_limit(target_guild)
+        files, oversized, failed = await _download_attachments(message.attachments, limit)
+        records = _attachment_records(message.attachments)
+        note = _attachment_note(oversized, failed, limit)
+
+        # Discord renders one image inside an embed, so promote the first image
+        # for a cleaner card and leave the rest as ordinary attachments.
+        inline = None
+        if files and _is_image(files[0].filename):
+            inline = f"attachment://{files[0].filename}"
+
+        if not content and not records:
+            return  # nothing to relay
 
         # Check for existing open ticket
         existing = db.get_open_ticket_by_user(target_guild.id, user.id)
@@ -225,9 +465,17 @@ class ModMail(commands.Cog):
             # Route message to existing ticket channel
             ch = target_guild.get_channel(existing["channel_id"])
             if ch:
-                embed = _user_embed(user.display_name, content)
-                await ch.send(embed=embed)
-                db.log_message(existing["id"], user.id, user.display_name, content, "from_user")
+                embed = _user_embed(
+                    user.display_name, content,
+                    attachments=message.attachments if not inline else message.attachments[1:],
+                    inline_image=inline,
+                )
+                sent = await ch.send(embed=embed, files=files)
+                _record_relayed_urls(records, sent)
+                if note:
+                    await ch.send(note)
+                db.log_message(existing["id"], user.id, user.display_name,
+                               content, "from_user", attachments=records)
             return
 
         # ── Open a new ticket ──────────────────────────────────────────────────
@@ -272,9 +520,17 @@ class ModMail(commands.Cog):
         await ticket_ch.send(embed=header, view=view)
 
         # First message embed
-        first_msg_embed = _user_embed(user.display_name, content)
-        await ticket_ch.send(embed=first_msg_embed)
-        db.log_message(ticket_id, user.id, user.display_name, content, "from_user")
+        first_msg_embed = _user_embed(
+            user.display_name, content,
+            attachments=message.attachments if not inline else message.attachments[1:],
+            inline_image=inline,
+        )
+        sent = await ticket_ch.send(embed=first_msg_embed, files=files)
+        _record_relayed_urls(records, sent)
+        if note:
+            await ticket_ch.send(note)
+        db.log_message(ticket_id, user.id, user.display_name,
+                       content, "from_user", attachments=records)
 
         # Send opening message to user
         open_msg = cfg.get("modmail_open_msg") or config.DEFAULT_MODMAIL_OPEN_MSG
@@ -297,8 +553,14 @@ class ModMail(commands.Cog):
 
     # ── /reply slash command (alternative to button) ──────────────────────────
     @app_commands.command(name="reply", description="Reply to the user in this ModMail ticket.")
-    @app_commands.describe(message="Your reply", anonymous="Send as 'Staff' instead of your name?")
-    async def reply(self, interaction: discord.Interaction, message: str, anonymous: bool = False):
+    @app_commands.describe(
+        message="Your reply",
+        anonymous="Send as 'Staff' instead of your name?",
+        attachment="Optional file or image to send to the user",
+    )
+    async def reply(self, interaction: discord.Interaction, message: str,
+                    anonymous: bool = False,
+                    attachment: "discord.Attachment | None" = None):
         ticket = db.get_open_ticket_by_channel(interaction.channel_id)
         if ticket is None:
             return await interaction.response.send_message(
@@ -314,30 +576,66 @@ class ModMail(commands.Cog):
         except discord.NotFound:
             return await interaction.response.send_message("❌ Cannot find the user.", ephemeral=True)
 
-        embed = _staff_embed(interaction.user.display_name, message, anonymous)
+        # Downloading and re-uploading can outrun the 3 second interaction
+        # window, so acknowledge first.
+        await interaction.response.defer(ephemeral=True)
+
+        # A DM channel is always at the base 10 MB ceiling regardless of how
+        # boosted the guild is, so the guild limit is the wrong yardstick here.
+        records, dm_file, echo_file, inline = [], None, None, None
+        if attachment is not None:
+            if attachment.size > _DEFAULT_UPLOAD_LIMIT:
+                return await interaction.followup.send(
+                    f"❌ **{attachment.filename}** is {_describe_size(attachment.size)}. "
+                    f"DMs cap out at {_describe_size(_DEFAULT_UPLOAD_LIMIT)} no matter how "
+                    f"boosted the server is, so it cannot be sent this way.",
+                    ephemeral=True,
+                )
+            try:
+                raw = await attachment.read()
+            except (discord.HTTPException, discord.NotFound) as e:
+                log.warning("Could not read staff attachment %s: %s", attachment.filename, e)
+                return await interaction.followup.send(
+                    f"❌ Could not read **{attachment.filename}** back from Discord. Try again.",
+                    ephemeral=True,
+                )
+            # Two File objects from the same bytes: a File may only be sent once.
+            dm_file = discord.File(io.BytesIO(raw), filename=attachment.filename)
+            echo_file = discord.File(io.BytesIO(raw), filename=attachment.filename)
+            if _is_image(attachment.filename):
+                inline = f"attachment://{attachment.filename}"
+            records = _attachment_records([attachment])
+
+        embed = _staff_embed(interaction.user.display_name, message, anonymous,
+                             inline_image=inline)
         try:
-            await user.send(embed=embed)
+            await user.send(embed=embed, file=dm_file) if dm_file else await user.send(embed=embed)
         except discord.Forbidden:
-            return await interaction.response.send_message(
-                "❌ Cannot DM that user.", ephemeral=True
+            return await interaction.followup.send(
+                "❌ Cannot DM that user. They may have closed DMs or left the server.",
+                ephemeral=True,
             )
 
         echo = discord.Embed(
-            description=message,
+            description=message or None,
             color=discord.Color.blurple(),
             timestamp=datetime.utcnow(),
         )
         display = "Staff" if anonymous else interaction.user.display_name
         echo.set_author(name=f"📤 Sent by {display}")
+        if inline:
+            echo.set_image(url=inline)
         if anonymous:
             echo.set_footer(text="Sent anonymously")
-        await interaction.channel.send(embed=echo)
+        sent = await interaction.channel.send(embed=echo, file=echo_file) if echo_file \
+            else await interaction.channel.send(embed=echo)
+        _record_relayed_urls(records, sent)
 
         db.log_message(
             ticket["id"], interaction.user.id, interaction.user.display_name,
-            message, "to_user", anonymous=anonymous,
+            message, "to_user", anonymous=anonymous, attachments=records,
         )
-        await interaction.response.send_message("✅ Reply sent.", ephemeral=True)
+        await interaction.followup.send("✅ Reply sent.", ephemeral=True)
 
     # ── /close slash command ──────────────────────────────────────────────────
     @app_commands.command(name="close", description="Close this ModMail ticket and archive it.")

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ModSuite — Discord Moderation Suite</title>
+<title>ModSuite — Self-hosted Discord community platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
@@ -582,7 +582,7 @@
   <h1>The mod suite<br>your server <em>deserves</em></h1>
 
   <p class="hero-sub">
-    ModSuite is a self-hosted Discord moderation bot with ModMail, Jail, self-roles, raid protection, and a full UI panel — no subscriptions, no limits.
+    A self-hosted Discord bot, REST API, and web dashboard in one process. ModMail, moderation, blueprints, message archive, and a full audit trail — no subscriptions, no limits.
   </p>
 
   <div class="hero-actions">
@@ -679,6 +679,31 @@
       <p>Every action — kicks, bans, mutes, warns, jails, lockdowns — is automatically posted to a dedicated staff-only log channel.</p>
       <span class="feature-tag">full audit trail</span>
     </div>
+    <div class="feature-card">
+      <span class="feature-icon">🧭</span>
+      <h3>Server Blueprints</h3>
+      <p>Describe roles, categories, channels, and permissions in JSON. Apply it to build a whole server in one command. Additive and idempotent — nothing is ever deleted, and running it twice changes nothing the second time. Export a live server back out to a file.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🔎</span>
+      <h3>Audit Trail</h3>
+      <p>Every dashboard request and every slash command in one timeline, with actor, target, payload, and result. Failures and refusals included. Captured as middleware, so nothing added later can forget to log.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🗄️</span>
+      <h3>Message Archive</h3>
+      <p>Optional forensic archive of public messages, including edits and deletions. Deleted messages come back to a private channel with their attachments. Retention is enforced, and files are served behind authentication.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">📡</span>
+      <h3>Feeds &amp; Events</h3>
+      <p>Watch any RSS or Atom feed and post new items with a thread each. Schedule recurring event reminders by rule or by an approved list of dates, with per-occurrence cancel and reschedule.</p>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🔴</span>
+      <h3>Stream Alerts</h3>
+      <p>Twitch, YouTube, Kick, and Rumble behind one interface. Only Twitch needs credentials. Every provider fails closed, so one platform going down never stalls the rest.</p>
+      </div>
   </div>
 </section>
 

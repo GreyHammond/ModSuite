@@ -277,6 +277,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 status_code=401,
             )
 
+        # Attach the authenticated identity to the request so endpoints can
+        # attribute the actions they take. Without this, every dashboard-issued
+        # ban, jail, and warn is logged as an anonymous "Dashboard" actor and
+        # the mod-log cannot answer who did what.
+        request.state.actor = sess["user"]
+
         return await call_next(request)
 
 

@@ -98,6 +98,18 @@ function injectStyles() {
     .tk-msg-author.staff { color: var(--gold); }
     .tk-msg-time { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
     .tk-msg-content { font-size: 13px; color: var(--text); line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+    .tk-atts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+    .tk-att-thumb { display: block; border-radius: 7px; overflow: hidden;
+                    border: 1px solid var(--border); max-width: 190px; line-height: 0; }
+    .tk-att-thumb img { max-width: 190px; max-height: 190px; object-fit: cover; display: block; }
+    .tk-att-thumb:hover { border-color: rgba(212,168,67,0.5); }
+    .tk-att-file { display: inline-flex; align-items: center; gap: 7px;
+                   background: var(--input); border: 1px solid var(--border);
+                   border-radius: 7px; padding: 6px 11px; font-size: 12px;
+                   color: var(--text); text-decoration: none; }
+    .tk-att-file:hover { border-color: rgba(212,168,67,0.5); }
+    .tk-att-name { font-weight: 500; }
+    .tk-att-size { color: var(--muted); font-size: 11px; }
     .tk-anon-badge {
       font-family: var(--font-mono); font-size: 10px; color: var(--muted);
       background: rgba(255,255,255,.04); padding: 1px 6px; border-radius: 4px;
@@ -319,9 +331,46 @@ async function loadTranscript(ticketId, card) {
   }
 }
 
+function fmtBytes(n) {
+  if (!n) return '';
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+/**
+ * Attachments are rendered from the bot's re-uploaded copy in the ticket
+ * channel, not the original DM link, because Discord signs DM attachment URLs
+ * with a short expiry. Once a ticket is closed its channel is deleted, so
+ * these thumbnails stop resolving; the media lives on in the transcript zip
+ * posted to the closed-tickets channel.
+ */
+function attachmentsHTML(list) {
+  if (!list || !list.length) return '';
+
+  const images = list.filter(a => a.is_image && a.url && !a.spoiler);
+  const others = list.filter(a => !(a.is_image && a.url && !a.spoiler));
+
+  const thumbs = images.map(a => `
+    <a class="tk-att-thumb" href="${esc(a.url)}" target="_blank" rel="noopener"
+       title="${esc(a.filename)}">
+      <img src="${esc(a.url)}" alt="${esc(a.filename)}" loading="lazy">
+    </a>`).join('');
+
+  const files = others.map(a => `
+    <a class="tk-att-file" ${a.url ? `href="${esc(a.url)}" target="_blank" rel="noopener"` : ''}>
+      <span class="tk-att-icon">&#128206;</span>
+      <span class="tk-att-name">${esc(a.filename)}${a.spoiler ? ' (spoiler)' : ''}</span>
+      <span class="tk-att-size">${esc(fmtBytes(a.size))}</span>
+    </a>`).join('');
+
+  return `<div class="tk-atts">${thumbs}${files}</div>`;
+}
+
 function msgHTML(m) {
   const cls = m.is_staff ? 'out' : 'in';
   const initial = (m.author || '?').charAt(0).toUpperCase();
+  const atts = attachmentsHTML(m.attachments);
   return `<div class="tk-msg">
     <div class="tk-msg-avatar ${cls}">${initial}</div>
     <div class="tk-msg-body">
@@ -330,7 +379,8 @@ function msgHTML(m) {
         ${m.anonymous ? `<span class="tk-anon-badge">anon</span>` : ''}
         <span class="tk-msg-time">${fmtTime(m.timestamp)}</span>
       </div>
-      <div class="tk-msg-content">${esc(m.content)}</div>
+      ${m.content ? `<div class="tk-msg-content">${esc(m.content)}</div>` : ''}
+      ${atts}
     </div>
   </div>`;
 }

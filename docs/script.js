@@ -293,9 +293,65 @@ const commands = [
   { name: "/verify",                   cat: "misc",      desc: "Verify a member (grant access to gated content)." },
   { name: "/unverify",                 cat: "misc",      desc: "Reverse a member's verification." },
   { name: "/move",                     cat: "misc",      desc: "Move a conversation to a different channel." },
+
+  // Blueprints (v4.0)
+  { name: "/blueprint preview",  cat: "blueprint", desc: "Show exactly what a blueprint would create. Changes nothing." },
+  { name: "/blueprint apply",    cat: "blueprint", desc: "Build every role, category, and channel in a blueprint that does not already exist. Requires confirm:True." },
+  { name: "/blueprint export",   cat: "blueprint", desc: "Snapshot this server's structure into a reusable blueprint file." },
+  { name: "/blueprint list",     cat: "blueprint", desc: "Show every blueprint available to this server." },
+  { name: "/blueprint delete",   cat: "blueprint", desc: "Delete a saved blueprint. Does not touch any channels." },
+
+  // Message archive (v4.0)
+  { name: "/archive setup",      cat: "archive",   desc: "Enable the message archive, set the restore channel, retention window, and scope." },
+  { name: "/archive status",     cat: "archive",   desc: "Show archive settings, message counts, and vault size." },
+  { name: "/archive exclude",    cat: "archive",   desc: "Exclude a channel from archiving." },
+  { name: "/archive purge",      cat: "archive",   desc: "Immediately delete archived messages older than N days." },
+  { name: "/archive off",        cat: "archive",   desc: "Stop archiving new messages. Existing records are kept." },
+
+  // Mute + public log (v4.0)
+  { name: "/mute-setup",         cat: "moderation", desc: "Create the Muted role and apply deny overwrites across every category. Required for mutes longer than 28 days." },
+  { name: "/public-modlog",      cat: "moderation", desc: "Post every mute, jail, kick, and ban with a reason to a channel members can read." },
+
+  // Feeds (v4.0)
+  { name: "/feed add",           cat: "feeds",     desc: "Watch an RSS or Atom feed and post new items, optionally with a thread each." },
+  { name: "/feed list",          cat: "feeds",     desc: "Show watched feeds with last check time and any errors." },
+  { name: "/feed check",         cat: "feeds",     desc: "Poll a feed immediately instead of waiting for the next cycle." },
+  { name: "/feed remove",        cat: "feeds",     desc: "Stop watching a feed." },
+
+  // Events (v4.0)
+  { name: "/meeting add",        cat: "events",    desc: "Add a recurring event by rule: nth weekday, last weekday, weekly, or day of month." },
+  { name: "/meeting dates",      cat: "events",    desc: "Add an event from an explicit list of approved dates, for bodies that do not follow a rule." },
+  { name: "/meeting cancel",     cat: "events",    desc: "Cancel one occurrence and post a notice. The schedule itself is untouched." },
+  { name: "/meeting move",       cat: "events",    desc: "Reschedule one occurrence to a different date." },
+  { name: "/meeting restore",    cat: "events",    desc: "Undo a cancellation or move." },
+  { name: "/meeting edit",       cat: "events",    desc: "Change an event's name, channel, time, location, agenda link, or ping role." },
+  { name: "/meeting adddates",   cat: "events",    desc: "Append dates to an existing fixed-date event." },
+  { name: "/meeting list",       cat: "events",    desc: "Show scheduled events with the next occurrence and any exceptions." },
+  { name: "/meeting remove",     cat: "events",    desc: "Delete an event." },
+
+  // Roster (v4.0)
+  { name: "/roster set",         cat: "roster",    desc: "Record which organization a member represents, then republish." },
+  { name: "/roster publish",     cat: "roster",    desc: "Rebuild the public roster from current role holders." },
+  { name: "/roster preview",     cat: "roster",    desc: "See the roster without publishing it." },
+  { name: "/roster remove",      cat: "roster",    desc: "Clear a member's roster record." },
+
+  // Records requests (v4.0)
+  { name: "/foia file",          cat: "requests",  desc: "Log a records request and compute its response deadline in business days." },
+  { name: "/foia list",          cat: "requests",  desc: "Show tracked requests with business days remaining or how far overdue." },
+  { name: "/foia extend",        cat: "requests",  desc: "Log an extension and recompute the deadline." },
+  { name: "/foia status",        cat: "requests",  desc: "Update a request's status, add a note, or record a fee quote." },
+  { name: "/foia close",         cat: "requests",  desc: "Close out a request." },
+  { name: "/foia delete",        cat: "requests",  desc: "Delete a tracked request." },
 ];
 
 const catLabels = {
+  blueprint:  "Blueprints",
+  archive:    "Archive",
+  audit:      "Audit",
+  feeds:      "Feeds",
+  events:     "Events",
+  roster:     "Roster",
+  requests:   "Requests",
   setup:      "Setup",
   modmail:    "ModMail",
   moderation: "Moderation",

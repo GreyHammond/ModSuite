@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ModSuite v3.0 -- Discord community & moderation platform</title>
+  <title>ModSuite v4.0 -- Discord community &amp; moderation platform</title>
   <meta name="description" content="ModSuite is a self-hosted, all-in-one Discord bot with a violation engine, 8-filter automod pipeline, severity profiles, role persistence, and a web dashboard. Built by Hammond Digital Studios.">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,7 +20,7 @@
     <a href="#top" class="brand">
       <span class="brand-mark">&#9670;</span>
       <span class="brand-name">ModSuite</span>
-      <span class="brand-version">v3.0</span>
+      <span class="brand-version">v4.0</span>
     </a>
     <nav class="topbar-nav">
       <a href="#features">Features</a>
@@ -208,7 +208,7 @@
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">&#9656;</span><h3>Name Filter <span class="badge-new">v3.0</span></h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Name Filter <span class="badge-new">v4.0</span></h3></header>
         <ul>
           <li>Checks display names on join and nickname change</li>
           <li>Unicode confusable normalization (Cyrillic, l33tspeak, fullwidth)</li>
@@ -218,7 +218,7 @@
       </article>
 
       <article class="feature">
-        <header><span class="feature-num">&#9656;</span><h3>Verification Gate <span class="badge-new">v3.0</span></h3></header>
+        <header><span class="feature-num">&#9656;</span><h3>Verification Gate <span class="badge-new">v4.0</span></h3></header>
         <ul>
           <li>React-to-verify: new members gain a role by reacting</li>
           <li>Configurable role, channel, and emoji</li>
@@ -234,6 +234,46 @@
           <li>Warning system with auto-jail / auto-ban thresholds</li>
           <li><code>/jail</code> strips roles, restores on release</li>
           <li>Advanced <code>/purge</code> with user/contains/age/bot filters</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Server Blueprints</h3></header>
+        <ul>
+          <li>Roles, categories, channels, and permissions described in JSON</li>
+          <li><code>/blueprint preview</code> shows the full plan and changes nothing</li>
+          <li>Additive and idempotent -- nothing is ever deleted, existing items are skipped</li>
+          <li><code>/blueprint export</code> snapshots a live server back to a file</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Audit Trail</h3></header>
+        <ul>
+          <li>Dashboard requests and slash commands in one timeline</li>
+          <li>Actor, target, payload, status, and IP on every entry</li>
+          <li>Failures and permission-denied commands recorded, not dropped</li>
+          <li>Secrets redacted; purge enforces a 7-day floor</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Message Archive</h3></header>
+        <ul>
+          <li>Public messages retained with edits and full revision history</li>
+          <li>Deleted messages reposted to a private channel with attachments</li>
+          <li>Retention loop purges rows and vault files together</li>
+          <li>Attachments served behind authentication, never a public mount</li>
+        </ul>
+      </article>
+
+      <article class="feature">
+        <header><span class="feature-num">&#9656;</span><h3>Feeds &amp; Events</h3></header>
+        <ul>
+          <li>Any RSS or Atom feed, with an optional thread per item</li>
+          <li>Falls back to <code>curl</code> when a host fingerprints the TLS handshake</li>
+          <li>Recurring events by rule or by an approved list of dates</li>
+          <li>Per-occurrence <code>/meeting cancel</code>, <code>move</code>, and <code>restore</code></li>
         </ul>
       </article>
 
@@ -373,7 +413,7 @@ pip install -r requirements.txt</code></pre>
       <div class="section-eyebrow">04 -- Command reference</div>
       <h2>Every slash command in ModSuite.</h2>
       <p class="section-lede">
-        Search or filter by category. <span id="cmd-count">116 commands</span> across 21 categories.
+        Search or filter by category. <span id="cmd-count">151 commands</span> across 27 categories.
       </p>
     </div>
 
@@ -381,6 +421,12 @@ pip install -r requirements.txt</code></pre>
       <input type="search" id="cmd-search" placeholder="Search commands, descriptions, or categories..." autocomplete="off">
       <div class="filter-chips" id="cmd-filters">
         <button class="chip active" data-cat="all">All</button>
+        <button class="chip" data-cat="blueprint">Blueprints</button>
+        <button class="chip" data-cat="archive">Archive</button>
+        <button class="chip" data-cat="feeds">Feeds</button>
+        <button class="chip" data-cat="events">Events</button>
+        <button class="chip" data-cat="roster">Roster</button>
+        <button class="chip" data-cat="requests">Requests</button>
         <button class="chip" data-cat="setup">Setup</button>
         <button class="chip" data-cat="modmail">ModMail</button>
         <button class="chip" data-cat="moderation">Moderation</button>
@@ -417,10 +463,123 @@ pip install -r requirements.txt</code></pre>
       <div class="section-eyebrow">05 -- Release history</div>
       <h2>Changelog.</h2>
     </div>
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v4.0.0</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Unified audit trail</h4>
+        <ul>
+          <li>Every dashboard mutation and every slash command in one timeline, with actor, target, payload, and result.</li>
+          <li>Captured as middleware and a global listener rather than per-route, so anything added later cannot forget to log.</li>
+          <li>Failures and permission-denied commands recorded. Secrets redacted. Purge enforces a 7-day floor.</li>
+        </ul>
+        <h4>Dashboard parity</h4>
+        <ul>
+          <li>Every editable config column now has an editor, verified programmatically against the schema. 96 keys across 23 sections.</li>
+          <li>New pages: Blueprints, Archive, Audit Trail, Requests, Feeds &amp; Events.</li>
+          <li>Branding configurable from the environment, so a deployment can be white-labelled without touching code.</li>
+        </ul>
+        <h4>Fixed</h4>
+        <ul>
+          <li><strong>The dashboard version was hardcoded</strong> and had read v2.0.0 for four releases. One constant now, returned by <code>/health</code>.</li>
+          <li><strong>Private channels could be created publicly visible</strong>: passing channel overwrites replaces the category's set instead of merging with it.</li>
+          <li><strong>Explicit <code>send_messages</code> allows defeated the mute role</strong>, since an allow on any role beats a deny on any other regardless of position.</li>
+          <li>Dashboard routes attributed actions to a literal &quot;Dashboard&quot; rather than the authenticated user.</li>
+        </ul>
+      </div>
+    </div>
 
     <div class="release">
       <div class="release-header">
-        <h3>v3.0.0</h3>
+        <span class="release-version">v3.9.0</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Multi-platform stream alerts</h4>
+        <ul>
+          <li>Twitch, YouTube, Kick, and Rumble behind one provider interface. Only Twitch needs credentials.</li>
+          <li>YouTube live status read from the channel's <code>/live</code> page; the Data API's search endpoint would exceed the daily quota tenfold on one channel.</li>
+          <li>Providers fail closed, so one platform going down never stalls the rest.</li>
+        </ul>
+        <h4>Feeds, events, and roster</h4>
+        <ul>
+          <li>RSS and Atom feeds with an optional thread per item, falling back to <code>curl</code> when a host fingerprints the TLS handshake.</li>
+          <li>Recurring events by rule or by an approved list of dates, with per-occurrence cancel, move, and restore.</li>
+          <li>Membership roster generated from role holders and republished automatically on change.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v3.8.0</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Mute that actually works</h4>
+        <ul>
+          <li><strong>Permanent mute lapsed at 28 days</strong> because Discord's native timeout caps there. A mute role is now the enforcement authority.</li>
+          <li><code>/mute-setup</code> creates the role and applies deny overwrites across every category.</li>
+          <li>Leaving and rejoining was a one-click bypass; the role is now re-applied on join.</li>
+        </ul>
+        <h4>Transparency and tracking</h4>
+        <ul>
+          <li><code>/public-modlog</code> posts every mute, jail, kick, and ban with a reason to a channel members can read. Warnings stay private.</li>
+          <li>Records request tracker with business-day deadlines, configurable response window, extension length, and holiday calendar.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v3.7.0</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Message archive</h4>
+        <ul>
+          <li>Public messages retained with edit history and deletion recovery, including bulk deletes.</li>
+          <li>Deleted messages reposted to a private channel with their attachments.</li>
+          <li>Retention loop purges rows and vault files together. Attachments served behind authentication with a path-traversal guard.</li>
+          <li>Scope defaults to public channels only; ModMail and staff categories are excluded.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v3.6.0</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Server blueprints</h4>
+        <ul>
+          <li>Roles, categories, channels, and permission overwrites described in JSON.</li>
+          <li><code>/blueprint preview</code> shows the full plan and changes nothing.</li>
+          <li>Additive and idempotent: matching is by name, existing items are skipped, nothing is ever deleted.</li>
+          <li><code>/blueprint export</code> snapshots a live server back to a file.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <span class="release-version">v3.5.2</span>
+        <span class="release-date">August 2026</span>
+      </div>
+      <div class="release-body">
+        <h4>Fixed</h4>
+        <ul>
+          <li><code>requirements.txt</code> was missing <code>httpx</code>, <code>pydantic</code>, and <code>starlette</code>. All three are imported directly; a clean venv crashed on startup.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="release">
+      <div class="release-header">
+        <h3>v4.0</h3>
         <span class="release-date">2026-07-08</span>
         <span class="release-tag tag-major">Phase 4</span>
       </div>
@@ -567,7 +726,7 @@ pip install -r requirements.txt</code></pre>
     </div>
   </div>
   <div class="footer-bottom">
-    <span>&copy; Hammond Digital Studios -- ModSuite v3.0</span>
+    <span>&copy; Hammond Digital Studios -- ModSuite v4.0</span>
   </div>
 </footer>
 

@@ -1,0 +1,155 @@
+{
+  "name": "starter",
+  "description": "A general-purpose community server: information, conversation, voice, and a private staff area. A sensible starting point to edit rather than a finished layout.",
+  "roles": [
+    {
+      "name": "Owner",
+      "color": "#C0392B",
+      "hoist": true,
+      "mentionable": false,
+      "permissions": ["administrator"]
+    },
+    {
+      "name": "Admin",
+      "color": "#D4A843",
+      "hoist": true,
+      "mentionable": false,
+      "permissions": [
+        "manage_guild", "manage_channels", "manage_roles", "manage_messages",
+        "manage_threads", "kick_members", "ban_members", "moderate_members",
+        "view_audit_log", "manage_nicknames"
+      ]
+    },
+    {
+      "name": "Moderator",
+      "color": "#2E5FCC",
+      "hoist": true,
+      "mentionable": false,
+      "permissions": [
+        "manage_messages", "manage_threads", "moderate_members",
+        "kick_members", "mute_members", "move_members"
+      ]
+    },
+    {
+      "name": "Bot",
+      "color": "#7B3FF2",
+      "hoist": false,
+      "mentionable": false
+    },
+    {
+      "name": "Muted",
+      "color": "#4A4A55",
+      "hoist": false,
+      "mentionable": false
+    },
+    {
+      "name": "Contributor",
+      "color": "#22C3D6",
+      "hoist": false,
+      "mentionable": false
+    },
+    {
+      "name": "Supporter",
+      "color": "#E08A3C",
+      "hoist": false,
+      "mentionable": false
+    },
+    {
+      "name": "Member",
+      "color": "#3E7A4E",
+      "hoist": false,
+      "mentionable": false
+    },
+    { "name": "Announcements", "color": "#5A6472", "mentionable": true },
+    { "name": "Events", "color": "#5A6472", "mentionable": true },
+    { "name": "Pending", "color": "#3A3A44", "mentionable": false }
+  ],
+  "categories": [
+    {
+      "name": "Information",
+      "overwrites": [
+        {
+          "role": "Muted",
+          "deny": ["send_messages", "send_messages_in_threads",
+                   "create_public_threads", "create_private_threads",
+                   "add_reactions", "speak"]
+        }
+      ],
+      "channels": [
+        {
+          "name": "welcome-and-rules",
+          "type": "text",
+          "topic": "Read first. House rules and how this server works.",
+          "overwrites": [
+            { "role": "@everyone", "deny": ["send_messages", "create_public_threads"] }
+          ]
+        },
+        {
+          "name": "announcements",
+          "type": "text",
+          "topic": "Server announcements.",
+          "overwrites": [
+            {
+              "role": "@everyone",
+              "deny": ["send_messages", "create_public_threads"],
+              "allow": ["send_messages_in_threads"]
+            }
+          ]
+        },
+        {
+          "name": "roles",
+          "type": "text",
+          "topic": "Pick up self-assignable roles here.",
+          "overwrites": [
+            { "role": "@everyone", "deny": ["send_messages", "create_public_threads"] }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Community",
+      "overwrites": [
+        {
+          "role": "Muted",
+          "deny": ["send_messages", "send_messages_in_threads",
+                   "create_public_threads", "create_private_threads",
+                   "add_reactions", "speak"]
+        }
+      ],
+      "channels": [
+        { "name": "general", "type": "text", "topic": "Main conversation." },
+        { "name": "off-topic", "type": "text", "topic": "Everything else." },
+        { "name": "introductions", "type": "forum", "topic": "New here? Start a post and say hello. Each introduction gets its own thread so people can welcome you individually." },
+        { "name": "media", "type": "forum", "topic": "Images, clips, and links worth their own thread." },
+        { "name": "help", "type": "forum", "topic": "Ask a question, get a thread. Mark it solved when it is." }
+      ]
+    },
+    {
+      "name": "Voice",
+      "overwrites": [
+        { "role": "Muted", "deny": ["speak", "send_messages"] }
+      ],
+      "channels": [
+        { "name": "General", "type": "voice" },
+        { "name": "Second", "type": "voice" },
+        { "name": "AFK", "type": "voice" }
+      ]
+    },
+    {
+      "name": "Staff",
+      "overwrites": [
+        { "role": "@everyone", "deny": ["view_channel"] },
+        { "role": "Owner", "allow": ["view_channel", "read_message_history"] },
+        { "role": "Admin", "allow": ["view_channel", "read_message_history"] },
+        { "role": "Moderator", "allow": ["view_channel", "read_message_history"] }
+      ],
+      "channels": [
+        { "name": "staff-chat", "type": "text", "topic": "Staff discussion." },
+        { "name": "mod-log", "type": "text", "topic": "Automated moderation log." },
+        { "name": "mod-panel", "type": "text", "topic": "Where the mod panel is posted." },
+        { "name": "deleted-messages", "type": "text", "topic": "Recovered deleted messages, if the archive is enabled." },
+        { "name": "Staff Voice", "type": "voice" }
+      ]
+    }
+  ]
+}

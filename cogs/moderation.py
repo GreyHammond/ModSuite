@@ -4,6 +4,8 @@ from discord.ext import commands, tasks
 from datetime import datetime, timedelta, timezone
 import re
 import database as db
+import mutes as mutelib
+from config import FOOTER_BRAND
 import config
 from utils import can_moderate, hierarchy_refusal_embed, get_bot_message, _fmt
 
@@ -60,11 +62,22 @@ class Moderation(commands.Cog):
         self.unban_loop.cancel()
 
     @app_commands.command(name="kick", description="Kick a member from the server.")
-    @app_commands.describe(member="Member to kick", reason="Optional reason")
-    async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided."):
+    @app_commands.describe(member="Member mention, username, or numeric user ID", reason="Optional reason")
+    async def kick(self, interaction: discord.Interaction, member: str, reason: str = "No reason provided."):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        from utils import resolve_user
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        if not is_member:
+            return await interaction.response.send_message(
+                f"❌ **{member}** is not in this server, so there is nothing to kick. "
+                f"Use `/ban` if you want to keep them out.",
+                ephemeral=True,
+            )
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
         try:
@@ -80,6 +93,11 @@ class Moderation(commands.Cog):
             actor_username=interaction.user.display_name,
             reason=reason,
         )
+        await mutelib.post_public_modlog(
+            self.bot, interaction.guild_id, "KICK",
+            target_name=getattr(member, 'display_name', str(member)),
+            actor_name=interaction.user.display_name,
+            reason=reason, duration="")
         embed = discord.Embed(title="👢 Member Kicked", color=discord.Color.orange(), timestamp=datetime.utcnow())
         embed.add_field(name="User",      value=f"{member} (`{member.id}`)", inline=True)
         embed.add_field(name="Kicked by", value=interaction.user.mention,    inline=True)
@@ -139,6 +157,11 @@ class Moderation(commands.Cog):
             actor_username=interaction.user.display_name,
             reason=reason,
         )
+        await mutelib.post_public_modlog(
+            self.bot, interaction.guild_id, "BAN",
+            target_name=getattr(user, 'display_name', str(user)),
+            actor_name=interaction.user.display_name,
+            reason=reason, duration="")
         embed.add_field(name="User",      value=name_display,             inline=True)
         embed.add_field(name="Banned by", value=interaction.user.mention, inline=True)
         embed.add_field(name="Reason",    value=reason,                   inline=False)
@@ -146,17 +169,40 @@ class Moderation(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="unban", description="Unban a user by ID.")
-    @app_commands.describe(user_id="The user's Discord ID", reason="Optional reason")
+    @app_commands.describe(user_id="The user's Discord ID (a mention also works)", reason="Optional reason")
     async def unban(self, interaction: discord.Interaction, user_id: str, reason: str = "No reason provided."):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+
+        from utils import parse_user_id, UnknownUser
+        uid = parse_user_id(user_id)
+        if uid is None:
+            return await interaction.response.send_message(
+                "❌ That is not a valid user ID. A banned user is not in the server, "
+                "so their username cannot be looked up -- use the numeric ID.",
+                ephemeral=True,
+            )
+
         try:
-            uid  = int(user_id)
             user = await self.bot.fetch_user(uid)
-            await interaction.guild.unban(user, reason=f"{interaction.user} -- {reason}")
         except Exception:
-            return await interaction.response.send_message("❌ User not found or not banned.", ephemeral=True)
+            # Deleted account: the ban entry still exists and is liftable by ID.
+            user = UnknownUser(uid)
+
+        try:
+            await interaction.guild.unban(discord.Object(id=uid), reason=f"{interaction.user} -- {reason}")
+        except discord.NotFound:
+            return await interaction.response.send_message(
+                f"❌ `{uid}` is not on the ban list.", ephemeral=True
+            )
+        except discord.Forbidden:
+            return await interaction.response.send_message(
+                "❌ I do not have permission to unban.", ephemeral=True
+            )
+
+        # Clear any pending auto-unban so the loop does not retry a lifted ban.
+        db.remove_timed_ban(interaction.guild_id, uid)
         db.add_mod_log(
             guild_id=str(interaction.guild_id),
             action="UNBAN",
@@ -166,6 +212,11 @@ class Moderation(commands.Cog):
             actor_username=interaction.user.display_name,
             reason=reason,
         )
+        await mutelib.post_public_modlog(
+            self.bot, interaction.guild_id, "UNBAN",
+            target_name=getattr(user, 'display_name', str(user)),
+            actor_name=interaction.user.display_name,
+            reason=reason, duration="")
         embed = discord.Embed(title="✅ Member Unbanned", color=discord.Color.green(), timestamp=datetime.utcnow())
         embed.add_field(name="User",        value=f"{user} (`{user.id}`)", inline=True)
         embed.add_field(name="Unbanned by", value=interaction.user.mention, inline=True)
@@ -247,29 +298,65 @@ class Moderation(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="mute", description="Timeout a member. Duration: 10m, 2h, 1d (default: 30 days).")
-    @app_commands.describe(member="Member to mute", duration="e.g. 10m, 2h30m, 1d", reason="Optional reason")
-    async def mute(self, interaction: discord.Interaction, member: discord.Member,
+    @app_commands.describe(member="Member mention, username, or numeric user ID", duration="e.g. 10m, 2h30m, 1d", reason="Optional reason")
+    async def mute(self, interaction: discord.Interaction, member: str,
                    duration: str = "", reason: str = "No reason provided."):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        from utils import resolve_user
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+        if not is_member:
+            return await interaction.response.send_message(
+                f"❌ **{member}** is not in this server. Discord timeouts only "
+                f"apply to current members.",
+                ephemeral=True,
+            )
         if not can_moderate(interaction.user, member, cfg or {}):
             return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
-        td = parse_duration(duration) if duration.strip() else timedelta(days=config.DEFAULT_MUTE_DAYS)
-        if td is None:
-            td = timedelta(days=config.DEFAULT_MUTE_DAYS)
-        discord_td = min(td, timedelta(days=28))
-        until = datetime.now(timezone.utc) + td
-        try:
-            await member.timeout(datetime.now(timezone.utc) + discord_td, reason=f"{interaction.user} -- {reason}")
-        except discord.Forbidden:
-            return await interaction.response.send_message("❌ Cannot mute that member.", ephemeral=True)
+        # "permanent" / "perm" / "0" mean no expiry at all.
+        raw = duration.strip().lower()
+        permanent = raw in ("permanent", "perm", "forever", "0", "inf")
+        if permanent:
+            td = None
+            # Far-future sentinel so the expiry sweep never picks it up.
+            until = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        else:
+            td = parse_duration(duration) if raw else timedelta(days=config.DEFAULT_MUTE_DAYS)
+            if td is None:
+                td = timedelta(days=config.DEFAULT_MUTE_DAYS)
+            until = datetime.now(timezone.utc) + td
+
+        # The mute ROLE is what actually enforces this. Discord's native
+        # timeout caps at 28 days, so relying on it meant a permanent mute
+        # quietly lapsed at day 28 with nobody told.
+        role_ok = await mutelib.apply_mute(member, reason)
+
+        # Timeout as well when the duration fits inside the cap: it takes
+        # effect instantly and survives the member re-joining.
+        if td is not None and td <= timedelta(days=28):
+            try:
+                await member.timeout(datetime.now(timezone.utc) + td,
+                                     reason=f"{interaction.user} -- {reason}")
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        if not role_ok:
+            return await interaction.response.send_message(
+                "❌ Could not apply the Muted role. Check that I have Manage Roles "
+                "and that my role sits above the member's highest role.",
+                ephemeral=True)
+
         db.add_mute(interaction.guild_id, member.id, until, reason)
         # DM the muted user
         try:
             text = _fmt(
                 get_bot_message(db, str(interaction.guild_id), "mute_dm"),
-                user=member.mention, reason=reason, duration=_fmt_td(td),
+                user=member.mention, reason=reason,
+                duration="permanently" if td is None else _fmt_td(td),
             )
             await member.send(embed=discord.Embed(description=text, color=discord.Color.dark_orange()))
         except (discord.Forbidden, discord.HTTPException):
@@ -277,8 +364,11 @@ class Moderation(commands.Cog):
         embed = discord.Embed(title="🔇 Member Muted", color=discord.Color.dark_orange(), timestamp=datetime.utcnow())
         embed.add_field(name="User",     value=f"{member} (`{member.id}`)", inline=True)
         embed.add_field(name="Muted by", value=interaction.user.mention,    inline=True)
-        embed.add_field(name="Duration", value=_fmt_td(td),                 inline=True)
-        embed.add_field(name="Expires",  value=f"<t:{int(until.timestamp())}:F>", inline=True)
+        embed.add_field(name="Duration",
+                        value="Permanent" if td is None else _fmt_td(td), inline=True)
+        embed.add_field(name="Expires",
+                        value="Never (manual unmute)" if td is None
+                              else f"<t:{int(until.timestamp())}:F>", inline=True)
         embed.add_field(name="Reason",   value=reason,                      inline=False)
         db.add_mod_log(
             guild_id=str(interaction.guild_id),
@@ -287,23 +377,119 @@ class Moderation(commands.Cog):
             target_username=str(member),
             actor_id=str(interaction.user.id),
             actor_username=interaction.user.display_name,
-            reason=f"{reason} (duration: {_fmt_td(td)})",
+            reason=f"{reason} (duration: {'permanent' if td is None else _fmt_td(td)})",
         )
+        await mutelib.post_public_modlog(
+            self.bot, interaction.guild_id, "MUTE",
+            target_name=member.display_name,
+            actor_name=interaction.user.display_name,
+            reason=reason, duration="Permanent" if td is None else _fmt_td(td))
         await _post_modlog(interaction.guild, cfg, embed)
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(
+        name="mute-setup",
+        description="Create the Muted role and lock it out of every channel.")
+    async def mute_setup(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "❌ Administrator only.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+        role = await mutelib.get_or_create_muted_role(interaction.guild)
+        if role is None:
+            return await interaction.followup.send(
+                "❌ Could not create the Muted role. I need Manage Roles.",
+                ephemeral=True)
+
+        updated, failed = await mutelib.sync_mute_overwrites(interaction.guild, role)
+        e = discord.Embed(title="Mute role ready", colour=0xD73739)
+        e.add_field(name="Role", value=role.mention, inline=True)
+        e.add_field(name="Channels locked", value=str(updated), inline=True)
+        if failed:
+            e.add_field(name="Failed", value=str(failed), inline=True)
+        e.add_field(
+            name="Position matters",
+            value="Drag this role above every member role, but below "
+                  "ModSuite. The bot can only assign roles beneath its own.",
+            inline=False)
+        e.add_field(
+            name="Pull Room excluded",
+            value="Muted members can still speak there, which is the point of it.",
+            inline=False)
+        e.set_footer(text=FOOTER_BRAND)
+        await interaction.followup.send(embed=e, ephemeral=True)
+
+    @app_commands.command(
+        name="public-modlog",
+        description="Post every mute, pull, and removal to a public channel.")
+    @app_commands.describe(channel="Channel residents can read. Omit to turn off.")
+    async def public_modlog(self, interaction: discord.Interaction,
+                            channel: discord.TextChannel = None):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "❌ Administrator only.", ephemeral=True)
+        if channel is None:
+            db.upsert_config(interaction.guild_id, public_modlog_enabled=0)
+            return await interaction.response.send_message(
+                "Public moderation log turned off.", ephemeral=True)
+
+        db.upsert_config(interaction.guild_id,
+                         public_modlog_channel=channel.id,
+                         public_modlog_enabled=1)
+        await interaction.response.send_message(
+            f"Public moderation log set to {channel.mention}. Mutes, pulls, "
+            f"kicks, and bans will post there with a reason. Warnings stay "
+            f"private.\n\nMake sure @everyone can read it but not post in it.",
+            ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """
+        Re-apply the mute role to someone who left and rejoined while muted.
+        Without this, leaving and rejoining is a one-click mute bypass.
+        """
+        try:
+            row = db.get_mute(member.guild.id, member.id)
+        except AttributeError:
+            row = next((m for m in db.get_all_mutes()
+                        if str(m["guild_id"]) == str(member.guild.id)
+                        and str(m["user_id"]) == str(member.id)), None)
+        if not row:
+            return
+        await mutelib.apply_mute(member, "rejoined while muted")
+        log_ch = (db.get_config(member.guild.id) or {}).get("modlog_ch_id")
+        if log_ch and (ch := self.bot.get_channel(int(log_ch))):
+            try:
+                await ch.send(embed=discord.Embed(
+                    description=f"🔇 {member.mention} rejoined while muted. "
+                                f"Mute role re-applied.",
+                    colour=0xD96C2C))
+            except discord.HTTPException:
+                pass
+
     @app_commands.command(name="unmute", description="Remove a timeout from a member.")
-    @app_commands.describe(member="Member to unmute", reason="Optional reason")
-    async def unmute(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided."):
+    @app_commands.describe(member="Member mention, username, or numeric user ID", reason="Optional reason")
+    async def unmute(self, interaction: discord.Interaction, member: str, reason: str = "No reason provided."):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
-        if not can_moderate(interaction.user, member, cfg or {}):
-            return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+        from utils import resolve_user
         try:
-            await member.timeout(None, reason=f"{interaction.user} -- {reason}")
-        except discord.Forbidden:
-            return await interaction.response.send_message("❌ Cannot unmute that member.", ephemeral=True)
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            return await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+
+        if is_member:
+            if not can_moderate(interaction.user, member, cfg or {}):
+                return await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
+            try:
+                await member.timeout(None, reason=f"{interaction.user} -- {reason}")
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            await mutelib.clear_mute(member, reason)
+        # If they left while muted there is no timeout left to lift, but the
+        # mute row still needs clearing so it does not linger in the dashboard.
         db.remove_mute(interaction.guild_id, member.id)
         db.add_mod_log(
             guild_id=str(interaction.guild_id),
@@ -314,6 +500,11 @@ class Moderation(commands.Cog):
             actor_username=interaction.user.display_name,
             reason=reason,
         )
+        await mutelib.post_public_modlog(
+            self.bot, interaction.guild_id, "UNMUTE",
+            target_name=getattr(member, 'display_name', str(member)),
+            actor_name=interaction.user.display_name,
+            reason=reason, duration="")
         embed = discord.Embed(title="🔊 Member Unmuted", color=discord.Color.green(), timestamp=datetime.utcnow())
         embed.add_field(name="User",        value=f"{member} (`{member.id}`)", inline=True)
         embed.add_field(name="Unmuted by",  value=interaction.user.mention,    inline=True)
@@ -335,6 +526,7 @@ class Moderation(commands.Cog):
                 try:
                     if member.is_timed_out():
                         await member.timeout(None, reason="Auto-unmute: duration expired")
+                        await mutelib.clear_mute(member, "duration expired")
                 except Exception:
                     pass
             db.remove_mute(row["guild_id"], row["user_id"])
@@ -389,11 +581,24 @@ class Moderation(commands.Cog):
         await self.bot.wait_until_ready()
 
     @app_commands.command(name="softban", description="[Mod] Softban a member: saves roles, bans to wipe messages, unbans, restores roles on rejoin.")
-    @app_commands.describe(member="Member to softban", reason="Reason for the softban")
-    async def softban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided."):
+    @app_commands.describe(member="Member mention, username, or numeric user ID", reason="Reason for the softban")
+    async def softban(self, interaction: discord.Interaction, member: str, reason: str = "No reason provided."):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             await interaction.response.send_message("❌ You need to be a moderator to use this command.", ephemeral=True)
+            return
+        from utils import resolve_user
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
+        if not is_member:
+            await interaction.response.send_message(
+                f"❌ **{member}** is not in this server, so there are no roles to save. "
+                f"Use `/ban` followed by `/unban` to wipe their messages.",
+                ephemeral=True,
+            )
             return
         if not can_moderate(interaction.user, member, cfg or {}):
             await interaction.response.send_message(embed=hierarchy_refusal_embed(), ephemeral=True)
@@ -495,7 +700,7 @@ class Moderation(commands.Cog):
             )
             log_embed.add_field(name="User",           value=f"{member} (`{member.id}`)", inline=False)
             log_embed.add_field(name="Roles Restored", value=restored_mentions or "None", inline=False)
-            log_embed.set_footer(text="ModSuite · Hammond Digital Studios")
+            log_embed.set_footer(text=FOOTER_BRAND)
             await _post_modlog(member.guild, cfg, log_embed)
 
         # ── General role persistence restore ──────────────────────────────────
@@ -557,7 +762,7 @@ class Moderation(commands.Cog):
                             value=" ".join(f"<@&{r.id}>" for r in roles_to_restore) or "None",
                             inline=False,
                         )
-                        log_embed.set_footer(text="ModSuite · Hammond Digital Studios")
+                        log_embed.set_footer(text=FOOTER_BRAND)
                         await _post_modlog(member.guild, cfg, log_embed)
 
                     db.clear_member_roles(str(member.guild.id), str(member.id))

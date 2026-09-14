@@ -21,8 +21,11 @@ except ImportError:
     _AIOHTTP = False
 
 import database as db
+import platforms as plat
+from config import FOOTER_BRAND
+from utils import resolve_user
 
-BRAND_FOOTER = "ModSuite · Hammond Digital Studios"
+BRAND_FOOTER = FOOTER_BRAND
 LIVE_COLOR = 0xE74C3C       # Red -- live
 OFFLINE_COLOR = 0x95A5A6    # Grey -- offline
 INFO_COLOR = 0xD4A843       # Gold -- info card
@@ -104,22 +107,31 @@ _twitch = TwitchAPI()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _build_info_embed(member: discord.Member, streamer: dict,
+def _build_info_embed(member, streamer: dict,
                       links: list[dict]) -> discord.Embed:
+    """
+    member may be a discord.Member, a discord.User, or None. The card is built
+    from the database row either way so that a streamer who has left the guild
+    still renders instead of silently skipping.
+    """
     embed = discord.Embed(
-        title=f"📡 {streamer['twitch_username']}",
+        title=f"📡 {streamer['twitch_username']} · "
+              f"{plat.PLATFORM_LABELS.get((streamer.get('platform') or 'twitch').lower(), 'Twitch')}",
         color=INFO_COLOR,
     )
-    embed.set_thumbnail(url=str(member.display_avatar.url))
+    avatar = getattr(member, "display_avatar", None) if member else None
+    if avatar is not None:
+        embed.set_thumbnail(url=str(avatar.url))
 
     embed.add_field(
         name="Discord",
-        value=member.mention,
+        value=member.mention if member else f"`{streamer['user_id']}` (left the server)",
         inline=True,
     )
     embed.add_field(
         name="Twitch",
-        value=f"[twitch.tv/{streamer['twitch_username']}](https://twitch.tv/{streamer['twitch_username']})",
+        value=plat.channel_url(streamer.get("platform") or "twitch",
+                               streamer["twitch_username"]),
         inline=True,
     )
 
@@ -133,19 +145,26 @@ def _build_info_embed(member: discord.Member, streamer: dict,
 
 def _build_live_embed(streamer: dict, links: list[dict],
                       member: discord.Member | None, stream_data: dict) -> discord.Embed:
-    title = stream_data.get("title", "Live Stream")
-    game  = stream_data.get("game_name", "")
+    title = stream_data.get("title") or "Live Stream"
+    # Providers normalise to 'game'; Twitch's raw key was 'game_name'.
+    game  = stream_data.get("game") or stream_data.get("game_name") or ""
 
     embed = discord.Embed(
-        title=f"🔴 LIVE -- {streamer['twitch_username']}",
-        color=LIVE_COLOR,
+        title=f"🔴 LIVE on {plat.PLATFORM_LABELS.get((streamer.get('platform') or 'twitch').lower(), 'Twitch')}"
+              f" -- {streamer['twitch_username']}",
+        color=plat.PLATFORM_COLORS.get(
+            (streamer.get("platform") or "twitch").lower(), LIVE_COLOR),
     )
     embed.add_field(name="📺 Title", value=title, inline=False)
     if game:
         embed.add_field(name="🎮 Playing", value=game, inline=True)
 
-    twitch_url = f"https://twitch.tv/{streamer['twitch_username']}"
-    embed.add_field(name="🔗 Watch", value=twitch_url, inline=False)
+    watch_url = (stream_data or {}).get("url") or plat.channel_url(
+        streamer.get("platform") or "twitch", streamer["twitch_username"])
+    embed.add_field(name="🔗 Watch", value=watch_url, inline=False)
+    viewers = (stream_data or {}).get("viewers")
+    if viewers is not None:
+        embed.add_field(name="👀 Viewers", value=f"{viewers:,}", inline=True)
 
     if links:
         link_lines = "\n".join(f"**{l['label']}:** {l['url']}" for l in links)
@@ -154,8 +173,8 @@ def _build_live_embed(streamer: dict, links: list[dict],
     if member:
         embed.set_thumbnail(url=str(member.display_avatar.url))
 
-    # Twitch thumbnail
-    thumb = stream_data.get("thumbnail_url", "")
+    # Providers already resolve Twitch's {width}/{height} template
+    thumb = stream_data.get("thumbnail") or stream_data.get("thumbnail_url") or ""
     if thumb:
         thumb = thumb.replace("{width}", "440").replace("{height}", "248")
         embed.set_image(url=thumb)
@@ -215,9 +234,9 @@ async def _update_pinned_info(bot: commands.Bot, guild: discord.Guild,
     channel = guild.get_channel(int(streamer["channel_id"]))
     if not channel:
         return
+    # A departed streamer still gets a card -- built from the DB row, with the
+    # Discord field falling back to the raw user ID.
     member = guild.get_member(int(streamer["user_id"]))
-    if not member:
-        return
     links = db.get_streamer_links(streamer["streamer_id"])
     embed = _build_info_embed(member, streamer, links)
 
@@ -276,22 +295,30 @@ class Streamer(commands.Cog):
         if not streamers:
             return
 
-        usernames = [s["twitch_username"].lower() for s in streamers]
-        live_streams = await _twitch.get_streams(usernames)
+        # Group by platform so each provider is queried once, then ask them
+        # all. A provider that fails returns nothing, which reads as offline
+        # rather than taking down the poll for the other platforms.
+        by_platform: dict[str, list[str]] = {}
+        for row in streamers:
+            p = (row.get("platform") or "twitch").lower()
+            by_platform.setdefault(p, []).append(row["twitch_username"])
+        results = await plat.poll_all(by_platform)
 
         for s in streamers:
-            twitch_lower = s["twitch_username"].lower()
+            platform = (s.get("platform") or "twitch").lower()
+            uname_lower = s["twitch_username"].lower()
+            live_streams = results.get(platform, {})
             was_live = bool(s["is_live"])
-            now_live = twitch_lower in live_streams
+            now_live = uname_lower in live_streams
 
             if now_live and not was_live:
                 # WENT LIVE
-                stream_data = live_streams[twitch_lower]
+                stream_data = live_streams[uname_lower]
                 db.update_streamer(
                     s["streamer_id"],
                     is_live=1,
                     stream_title=stream_data.get("title", ""),
-                    stream_game=stream_data.get("game_name", ""),
+                    stream_game=stream_data.get("game", ""),
                 )
                 await self._notify_live(guild, s, stream_data)
 
@@ -340,19 +367,45 @@ class Streamer(commands.Cog):
         description="[Mod] Add a streamer -- creates their channel and assigns the role.",
     )
     @app_commands.describe(
-        member="The member to add as a streamer",
-        twitch_username="Their Twitch username",
+        member="Member mention, username, or numeric user ID",
+        twitch_username="Their username or handle on the chosen platform",
+        platform="Which platform to watch (default Twitch)",
     )
+    @app_commands.choices(platform=[
+        app_commands.Choice(name="Twitch", value="twitch"),
+        app_commands.Choice(name="YouTube", value="youtube"),
+        app_commands.Choice(name="Kick", value="kick"),
+        app_commands.Choice(name="Rumble", value="rumble"),
+    ])
     async def streamer_add(
         self,
         interaction: discord.Interaction,
-        member: discord.Member,
+        member: str,
         twitch_username: str,
+        platform: str = "twitch",
     ):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
             await interaction.response.send_message(
                 "❌ Moderator or Administrator only.", ephemeral=True
+            )
+            return
+
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
+
+        # Adding requires a real member: the personal channel is created with a
+        # per-member permission overwrite and the Streamer role has to land
+        # somewhere. Removal and editing do not have that constraint.
+        if not is_member:
+            await interaction.response.send_message(
+                f"❌ **{member}** is not in this server, so their channel "
+                f"overwrites and Streamer role cannot be set up. "
+                f"They need to join before being added.",
+                ephemeral=True,
             )
             return
 
@@ -378,7 +431,7 @@ class Streamer(commands.Cog):
         await _get_or_create_alerts_role(guild)
 
         # Create personal channel
-        channel_name = f"{twitch_username.lower()}-chat"
+        channel_name = f"{twitch_username.lower().lstrip('@')}-chat"
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(
                 view_channel=True,
@@ -414,6 +467,7 @@ class Streamer(commands.Cog):
             user_id=str(member.id),
             twitch_username=twitch_username,
             channel_id=str(personal_ch.id),
+            platform=platform,
         )
 
         # Pin info card
@@ -434,11 +488,11 @@ class Streamer(commands.Cog):
         name="remove",
         description="[Mod] Remove a streamer -- deletes their channel and removes the role.",
     )
-    @app_commands.describe(member="The streamer to remove")
+    @app_commands.describe(member="Streamer mention, username, or numeric user ID")
     async def streamer_remove(
         self,
         interaction: discord.Interaction,
-        member: discord.Member,
+        member: str,
     ):
         cfg = db.get_config(interaction.guild_id)
         if not _is_staff(interaction.user, cfg):
@@ -447,38 +501,65 @@ class Streamer(commands.Cog):
             )
             return
 
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
+
         guild_id = str(interaction.guild_id)
         streamer = db.get_streamer(guild_id, str(member.id))
         if not streamer:
             await interaction.response.send_message(
-                f"❌ {member.mention} is not a streamer.", ephemeral=True
+                f"❌ **{member}** is not a streamer.", ephemeral=True
             )
             return
 
         await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
+        notes: list[str] = []
 
-        # Delete personal channel
+        # Delete personal channel. This is guild-side state and does not depend
+        # on the streamer still being present.
         ch = guild.get_channel(int(streamer["channel_id"]))
         if ch:
             try:
                 await ch.delete(reason="ModSuite: Streamer removed")
+                notes.append(f"Channel `#{ch.name}` deleted.")
             except discord.Forbidden:
-                pass
+                notes.append("⚠️ Could not delete their channel (missing permissions).")
+        else:
+            notes.append("Their channel was already gone.")
 
-        # Remove Streamer role
-        streamer_role = discord.utils.get(guild.roles, name="Streamer")
-        if streamer_role and streamer_role in member.roles:
-            try:
-                await member.remove_roles(streamer_role, reason="ModSuite: Streamer removed")
-            except discord.Forbidden:
-                pass
+        # Role removal only applies if they are still here. A departed member
+        # has no roles to strip, and that must not block the DB cleanup.
+        if is_member:
+            streamer_role = discord.utils.get(guild.roles, name="Streamer")
+            if streamer_role and streamer_role in member.roles:
+                try:
+                    await member.remove_roles(streamer_role, reason="ModSuite: Streamer removed")
+                    notes.append("Streamer role removed.")
+                except discord.Forbidden:
+                    notes.append("⚠️ Could not remove their Streamer role (missing permissions).")
+        else:
+            notes.append("They are no longer in the server, so no role was removed.")
 
         db.remove_streamer(guild_id, str(member.id))
 
+        db.add_mod_log(
+            guild_id=guild_id,
+            action="STREAMER_REMOVED",
+            target_id=str(member.id),
+            target_username=str(member),
+            actor_id=str(interaction.user.id),
+            actor_username=interaction.user.display_name,
+            reason=f"Twitch: {streamer['twitch_username']}",
+        )
+
+        detail = "\n".join(f"• {n}" for n in notes)
         await interaction.followup.send(
-            f"✅ **{member.display_name}** removed as a streamer. Channel deleted.",
+            f"✅ **{member}** (`{member.id}`) removed as a streamer.\n{detail}",
             ephemeral=True,
         )
 
@@ -489,13 +570,13 @@ class Streamer(commands.Cog):
         description="[Mod] Update a streamer's Twitch username.",
     )
     @app_commands.describe(
-        member="The streamer to edit",
+        member="Streamer mention, username, or numeric user ID",
         twitch_username="New Twitch username",
     )
     async def streamer_edit(
         self,
         interaction: discord.Interaction,
-        member: discord.Member,
+        member: str,
         twitch_username: str,
     ):
         cfg = db.get_config(interaction.guild_id)
@@ -505,11 +586,17 @@ class Streamer(commands.Cog):
             )
             return
 
+        try:
+            member, is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
+
         guild_id = str(interaction.guild_id)
         streamer = db.get_streamer(guild_id, str(member.id))
         if not streamer:
             await interaction.response.send_message(
-                f"❌ {member.mention} is not a streamer.", ephemeral=True
+                f"❌ **{member}** is not a streamer.", ephemeral=True
             )
             return
 
@@ -531,9 +618,112 @@ class Streamer(commands.Cog):
         await _update_pinned_info(self.bot, interaction.guild, updated)
 
         await interaction.response.send_message(
-            f"✅ Updated **{member.display_name}** → Twitch: `{twitch_username}`",
+            f"✅ Updated **{member}** → Twitch: `{twitch_username}`",
             ephemeral=True,
         )
+
+    # ── /streamer list ────────────────────────────────────────────────────────
+
+    @streamer_group.command(
+        name="list",
+        description="[Mod] List every registered streamer, including any who have left.",
+    )
+    async def streamer_list(self, interaction: discord.Interaction):
+        cfg = db.get_config(interaction.guild_id)
+        if not _is_staff(interaction.user, cfg):
+            await interaction.response.send_message(
+                "❌ Moderator or Administrator only.", ephemeral=True
+            )
+            return
+
+        guild_id = str(interaction.guild_id)
+        streamers = db.get_all_streamers(guild_id)
+        if not streamers:
+            await interaction.response.send_message(
+                "ℹ️ No streamers registered yet.", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"📡 Registered Streamers ({len(streamers)})",
+            color=INFO_COLOR,
+        )
+
+        orphans = 0
+        for st in streamers[:25]:
+            member = interaction.guild.get_member(int(st["user_id"]))
+            if member is None:
+                orphans += 1
+                who = f"`{st['user_id']}` — **left the server**"
+            else:
+                who = f"{member.mention} (`{st['user_id']}`)"
+            live = " 🔴 LIVE" if st.get("is_live") else ""
+            embed.add_field(
+                name=f"{st['twitch_username']}{live}",
+                value=who,
+                inline=False,
+            )
+
+        if len(streamers) > 25:
+            embed.description = f"Showing the first 25 of {len(streamers)}."
+        if orphans:
+            embed.set_footer(
+                text=f"{orphans} streamer(s) have left the server — "
+                     f"remove them with /streamer remove <user ID>. · {BRAND_FOOTER}"
+            )
+        else:
+            embed.set_footer(text=BRAND_FOOTER)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── Shared resolution for the links subcommands ───────────────────────────
+
+    async def _streamer_for(self, interaction: discord.Interaction,
+                            member: "str | None"):
+        """
+        Return the streamer row the caller is allowed to act on, or None after
+        sending an error response.
+
+        With no ``member`` argument this is self-service: the caller's own
+        streamer row. With a ``member`` argument it is a staff action against
+        another streamer, resolved from a mention, username, or numeric user
+        ID -- the last of which keeps working after they leave the guild.
+        """
+        guild_id = str(interaction.guild_id)
+        cfg = db.get_config(interaction.guild_id)
+
+        if member is None:
+            streamer = db.get_streamer(guild_id, str(interaction.user.id))
+            if not streamer:
+                await interaction.response.send_message(
+                    "❌ You're not registered as a streamer. "
+                    "Staff can pass `member:` to manage someone else's links.",
+                    ephemeral=True,
+                )
+                return None
+            return streamer
+
+        if not _is_staff(interaction.user, cfg):
+            await interaction.response.send_message(
+                "❌ Only moderators can manage another streamer's links.",
+                ephemeral=True,
+            )
+            return None
+
+        try:
+            target, _is_member = await resolve_user(self.bot, interaction.guild, member)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return None
+
+        streamer = db.get_streamer(guild_id, str(target.id))
+        if not streamer:
+            await interaction.response.send_message(
+                f"❌ **{target}** (`{target.id}`) is not a registered streamer.",
+                ephemeral=True,
+            )
+            return None
+        return streamer
 
     # ── /streamer links ───────────────────────────────────────────────────────
 
@@ -550,25 +740,12 @@ class Streamer(commands.Cog):
     @app_commands.describe(
         label="Label for the link (e.g. YouTube, Twitter, Kick)",
         url="The URL",
+        member="[Mod only] Act on another streamer: mention, username, or user ID",
     )
-    async def links_add(self, interaction: discord.Interaction, label: str, url: str):
-        guild_id = str(interaction.guild_id)
-        user_id  = str(interaction.user.id)
-        cfg      = db.get_config(interaction.guild_id)
-
-        # Allow the streamer themselves OR a mod
-        streamer = db.get_streamer(guild_id, user_id)
-        if not streamer:
-            if _is_staff(interaction.user, cfg):
-                await interaction.response.send_message(
-                    "❌ Use this on behalf of a streamer by having them run it, "
-                    "or use `/streamer edit` to update their Twitch.",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    "❌ You're not registered as a streamer.", ephemeral=True
-                )
+    async def links_add(self, interaction: discord.Interaction, label: str, url: str,
+                        member: str | None = None):
+        streamer = await self._streamer_for(interaction, member)
+        if streamer is None:
             return
 
         db.add_streamer_link(streamer["streamer_id"], label, url)
@@ -584,16 +761,14 @@ class Streamer(commands.Cog):
         name="remove",
         description="Remove a link from your streamer profile.",
     )
-    @app_commands.describe(label="Label of the link to remove")
-    async def links_remove(self, interaction: discord.Interaction, label: str):
-        guild_id = str(interaction.guild_id)
-        user_id  = str(interaction.user.id)
-
-        streamer = db.get_streamer(guild_id, user_id)
-        if not streamer:
-            await interaction.response.send_message(
-                "❌ You're not registered as a streamer.", ephemeral=True
-            )
+    @app_commands.describe(
+        label="Label of the link to remove",
+        member="[Mod only] Act on another streamer: mention, username, or user ID",
+    )
+    async def links_remove(self, interaction: discord.Interaction, label: str,
+                           member: str | None = None):
+        streamer = await self._streamer_for(interaction, member)
+        if streamer is None:
             return
 
         removed = db.remove_streamer_link(streamer["streamer_id"], label)
@@ -611,15 +786,12 @@ class Streamer(commands.Cog):
         name="list",
         description="View your streamer links.",
     )
-    async def links_list(self, interaction: discord.Interaction):
-        guild_id = str(interaction.guild_id)
-        user_id  = str(interaction.user.id)
-
-        streamer = db.get_streamer(guild_id, user_id)
-        if not streamer:
-            await interaction.response.send_message(
-                "❌ You're not registered as a streamer.", ephemeral=True
-            )
+    @app_commands.describe(
+        member="[Mod only] View another streamer's links: mention, username, or user ID",
+    )
+    async def links_list(self, interaction: discord.Interaction, member: str | None = None):
+        streamer = await self._streamer_for(interaction, member)
+        if streamer is None:
             return
 
         links = db.get_streamer_links(streamer["streamer_id"])
